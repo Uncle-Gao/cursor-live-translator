@@ -1,0 +1,30 @@
+# MacOS
+.DS_Store
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dist (compiled binaries should not be in source control unless explicitly needed)
+# But for this simple project, user might want to keep it or distribute via Releases.
+# Usually, dist is ignored.
+dist/
+
+# Backup files
+*.bak
+*.old
+
+# Generated icons (keep png as source, ignore ico if it can be regenerated)
+hacker_icon.ico
+
+# Environment variables
+.env
+.env.local
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
