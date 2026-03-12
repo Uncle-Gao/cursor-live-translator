@@ -22,14 +22,14 @@
     "assets": [],
     "outputPath": "dist"
   },
-  "author": "",
+  "author": "Uncle-Gao",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR_USERNAME/cursor-settings-zh.git"
+    "url": "git+https://github.com/Uncle-Gao/cursor-settings-zh.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR_USERNAME/cursor-settings-zh/issues"
+    "url": "https://github.com/Uncle-Gao/cursor-settings-zh/issues"
   },
-  "homepage": "https://github.com/YOUR_USERNAME/cursor-settings-zh#readme"
+  "homepage": "https://github.com/Uncle-Gao/cursor-settings-zh#readme"
 }
