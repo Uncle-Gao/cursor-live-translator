@@ -6,7 +6,10 @@ const readline = require('readline');
 /**
  * Cursor 汉化 Pro 版
  * 功能：一键汉化 + 全平台适配 + 自动修复校验 (Checksum)
+ * 适配版本：2.6.18
  */
+
+const BASE_CURSOR_VERSION = '2.6.18';
 
 // === 1. 环境与路径检测 ===
 function getPaths() {
@@ -98,6 +101,7 @@ async function main() {
     }
 
     console.log(`\n==== Cursor 汉化 Pro 工具 ====`);
+    console.log(`适配 Cursor 版本: ${BASE_CURSOR_VERSION}`);
     console.log(`检测到平台: ${process.platform}`);
     console.log(`安装路径: ${paths.root}`);
 
@@ -115,7 +119,16 @@ function showMenu(paths) {
 }
 
 function runLocalization(paths) {
+    const product = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
+    const currentVersion = product.version;
+
     console.log('\n--- 开始全自动汉化流程 ---');
+    console.log(`当前 Cursor 版本: ${currentVersion}`);
+
+    if (currentVersion !== BASE_CURSOR_VERSION) {
+        console.log(`\x1b[33m⚠️ 警告: 当前版本 (${currentVersion}) 与补丁适配版本 (${BASE_CURSOR_VERSION}) 不一致。\x1b[0m`);
+        console.log(`汉化可能会部分失效，建议继续前确保已自动备份。`);
+    }
     
     // 1. 备份检测
     if (!fs.existsSync(paths.backupJs)) {
@@ -154,7 +167,6 @@ function runLocalization(paths) {
     const mainJsBuffer = fs.readFileSync(paths.mainJs);
     const newHash = crypto.createHash('sha256').update(mainJsBuffer).digest('base64').replace(/=+$/, '');
     
-    const product = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
     product.checksums['vs/workbench/workbench.desktop.main.js'] = newHash;
     fs.writeFileSync(paths.productJson, JSON.stringify(product, null, '\t'), 'utf8');
     
