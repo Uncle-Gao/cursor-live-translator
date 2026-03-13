@@ -45,30 +45,116 @@ function getPaths() {
 
 // === 2. 翻译字典 ===
 const dictionary = {
-    // 导航
-    'General': '常规', 'Agents': '智能体', 'Tab': 'Tab', 'Models': '模型',
-    'Cloud Agents': 'Cloud 智能体', 'Rules, Skills, Subagents': '规则、技能、子智能体',
-    'Tools & MCP': '工具与 MCP', 'Hooks': '钩子', 'Indexing & Docs': '索引与文档',
+    // === 0. 侧边栏导航 ===
+    'General': '常规',
+    'Agents': '智能体',
+    'Tab': 'Tab',
+    'Models': '模型',
+    'Cloud Agents': 'Cloud 智能体',
+    'Plugins': '插件',
+    'Rules, Skills, Subagents': '规则、技能、子智能体',
+    'Tools & MCP': '工具与 MCP',
+    'Hooks': '钩子',
+    'Indexing & Docs': '索引与文档',
+    'Network': '网络',
     'Beta': '公测',
-    // 常规
-    'Manage Account': '管理账户', 'Upgrade to Pro': '升级到 Pro', 'Preferences': '偏好设置',
-    'Keyboard Shortcuts': '键盘快捷键', 'Privacy': '隐私', 'Log Out': '注销登录',
-    // 智能体
-    'Auto-Run Mode': '自动运行模式', 'Command Allowlist': '命令白名单', 'MCP Allowlist': 'MCP 白名单',
-    'Browser Protection': '浏览器保护', 'File-Deletion Protection': '文件删除保护',
-    'Default Approach': '默认方法', 'Web Search Tool': '网页搜索工具', 'Applying Changes': '应用更改',
-    'Inline Editing & Terminal': '内联编辑与终端', 'Terminal Hint': '终端提示', 'Voice Mode': '语音模式',
+
+    // === 1. “常规” (General) 页面 ===
+    'Manage Account': '管理账户',
+    'Manage your account and billing': '管理您的账户和账单',
+    'Upgrade to Pro': '升级到 Pro',
+    'Preferences': '偏好设置',
+    'Sync layouts across windows': '在窗口间同步布局',
+    'Editor Settings': '编辑器设置',
+    'Keyboard Shortcuts': '键盘快捷键',
+    'Import Settings from VS Code': '从 VS Code 导入设置',
+    'Layout': '布局',
+    'Notifications': '通知',
+    'Privacy': '隐私',
+    'Log Out': '注销登录',
+
+    // === 2. “智能体” (Agents) 页面 ===
+    'Auto-Run Mode': '自动运行模式',
+    'Choose how Agent runs tools like command execution, MCP, and file writes.': '选择智能体运行工具（如命令执行、MCP 和文件写入）的方式。',
+    'Command Allowlist': '命令白名单',
+    'MCP Allowlist': 'MCP 白名单',
+    'Fetch Domain Allowlist': '获取域名白名单',
+    'Auto-Approved Mode Transitions': '自动批准模式切换',
+    'Browser Protection': '浏览器保护',
+    'MCP Tools Protection': 'MCP 工具保护',
+    'File-Deletion Protection': '文件删除保护',
+    'External-File Protection': '外部文件保护',
+    'Default Location': '默认位置',
+    'Text Size': '文本大小',
+    'Auto-Clear Chat': '自动清除聊天',
+    'Max Tab Count': '最大标签页数量',
+    'Queue Messages': '消息排队',
+    'Usage Summary': '用量摘要',
+    'Agent Autocomplete': '智能体自动补全',
+    'Agent Review': '智能体审查',
+    'Default Approach': '默认方法',
+    'Context': '上下文 (Context)',
+    'Web Search Tool': '网页搜索工具',
+    '自动接受网页搜索': '自动接受网页搜索',
+    'Web Fetch Tool': '网页获取工具',
+    '分级 Cursor 忽略': '分级 Cursor 忽略',
+    '在 Cursor 忽略搜索中忽略符号链接': '在 Cursor 忽略搜索中忽略符号链接',
+    'Applying Changes': '应用更改',
+    'Inline Diffs': '内联差异 (Inline Diffs)',
+    '接受时跳转到下一个差异': '接受时跳转到下一个差异',
+    'Auto Format on Agent Finish': '智能体完成时自动格式化',
+    'Inline Editing & Terminal': '内联编辑与终端',
+    'Legacy Terminal Tool': '传统终端工具',
+    '选中文本时显示工具栏': '选中文本时显示工具栏',
+    '自动解析链接': '自动解析链接',
+    'Themed Diff Backgrounds': '主题化差异背景',
+    'Terminal Hint': '终端提示',
+    'Preview Box for Terminal Ctrl+K': '终端 Ctrl+K 预览框',
+    'Collapse Auto-Run Commands': '折叠自动运行命令',
+    'Voice Mode': '语音模式',
+    'Submit Keywords': '提交关键字',
     'Attribution': '属性归属',
-    // Tab
-    'Cursor Tab': 'Cursor Tab', 'Partial Accepts': '部分采纳', 'Imports': '导入',
-    // 聊天界面
-    'New Chat': '新对话', 'Type a message...': '输入消息...', 'Search codebase': '搜索代码库',
-    'Search files': '搜索文件', 'Ask a question': '提个问题', 'Composer': 'Composer',
-    'Toggle Chat Pane': '切换聊天面板', 'Maximize Chat': '最大化聊天', 'Close Tab': '关闭标签页',
-    'Export Transcript': '导出对话记录'
+    'Commit Attribution': '提交归属',
+    'PR Attribution': '拉取请求 (PR) 归属',
+
+    // === 3. “Tab” 页面 ===
+    'Cursor Tab': 'Cursor Tab',
+    'Context-aware, multi-line suggestions around your cursor based on recent edits': '基于最近编辑的、在光标周围提供上下文感知的多行建议',
+    'Partial Accepts': '部分采纳',
+    'Suggestions While Commenting': '注释时提供建议',
+    'Whitespace-Only Suggestions': '仅空格建议',
+    'Suggest edits like new lines and indentation that modify whitespace only': '仅建议修改空格（如换行和缩进）的编辑',
+    'Imports': '导入',
+
+    // === 4. “模型” (Models) 页面 ===
+    'Add or search model': '添加或搜索模型',
+    'API Keys': 'API 密钥',
+    'Azure OpenAI': 'Azure OpenAI',
+    'Test Model': '测试模型 (Test Model)',
+
+    // === 12. 聊天界面与上下文菜单 (Chat UI & Context Menu) ===
+    'New Chat': '新对话',
+    'Type a message...': '输入消息...',
+    'Search codebase': '搜索代码库',
+    'Search files': '搜索文件',
+    'Ask a question': '提个问题',
+    'Chat': '聊天',
+    'Composer': 'Composer',
+    'Submit': '提交',
+    'Cancel': '取消',
+    'Toggle Chat Pane': '切换聊天面板',
+    'Maximize Chat': '最大化聊天',
+    'Close Tab': '关闭标签页',
+    'Close Other Tabs': '关闭其他标签页',
+    'Close All Tabs': '关闭所有标签页',
+    'Open Tab as Editor': '在编辑器中打开标签页',
+    'Export Transcript': '导出对话记录',
+    'Copy Request ID': '复制请求 ID',
+    'Agent Settings': '智能体设置'
 };
 
 const fragments = [
+    // Agents
     { en: "Commands that can run automatically", cn: "可以自动运行的命令" },
     { en: "MCP tools that can run automatically. Format: 'server:tool'", cn: "可以自动运行的 MCP 工具。格式：'server:tool'" },
     { en: "Prevent Agent from automatically running Browser tools", cn: "防止智能体自动运行浏览器工具" },
@@ -85,8 +171,12 @@ const fragments = [
     { en: 'K in the Terminal', cn: 'K 的提示' },
     { en: "Mark Agent commits as 'Made with Cursor'", cn: '将智能体生成的提交标记为“由 Cursor 创作”' },
     { en: 'Mark pull requests as made with Cursor', cn: '将拉取请求标记为“由 Cursor 创作”' },
+
+    // Tab
     { en: "Accept the next word of a suggestion via ", cn: "通过采纳建议中的下一个词： " },
     { en: "Automatically import necessary modules for ", cn: "自动导入必要的模块： " },
+
+    // Chat UI
     { en: "Type a message...", cn: "输入消息..." }
 ];
 
