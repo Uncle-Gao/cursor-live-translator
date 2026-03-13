@@ -15,8 +15,7 @@
   ],
   "scripts": {
     "start": "node cursor_zh_pro.js",
-    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist",
-    "inject-icon": "node inject_icon.js"
+    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist"
   },
   "pkg": {
     "assets": [],

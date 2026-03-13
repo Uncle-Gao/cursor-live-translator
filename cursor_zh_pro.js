@@ -6,10 +6,10 @@ const readline = require('readline');
 /**
  * Cursor 汉化 Pro 版
  * 功能：一键汉化 + 全平台适配 + 自动修复校验 (Checksum)
- * 适配版本：2.6.18
+ * 适配版本：2.6.19
  */
 
-const BASE_CURSOR_VERSION = '2.6.18';
+const BASE_CURSOR_VERSION = '2.6.19';
 
 // === 1. 环境与路径检测 ===
 function getPaths() {
@@ -172,7 +172,13 @@ function runLocalization(paths) {
     
     console.log('✓ 校验值已同步，警告已消除。');
     console.log('\n✨ 汉化大功告成！请彻底重启 Cursor 以查看效果。');
-    showMenu(paths);
+    console.log('\n按任意键返回菜单...');
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.once('data', () => {
+        process.stdin.setRawMode(false);
+        showMenu(paths);
+    });
 }
 
 function restoreOfficial(paths) {
@@ -195,4 +201,20 @@ function restoreOfficial(paths) {
     showMenu(paths);
 }
 
-main();
+async function start() {
+    try {
+        await main();
+    } catch (err) {
+        console.error('\n❌ 发生严重错误:');
+        console.error(err);
+        console.log('\n程序即将退出，请截图保留错误信息以便排查。');
+        console.log('按任意键退出...');
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.once('data', () => {
+            process.exit(1);
+        });
+    }
+}
+
+start();
