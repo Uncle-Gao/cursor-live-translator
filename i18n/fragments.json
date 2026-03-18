@@ -1,0 +1,560 @@
+[
+  {
+    "en": "Commands that can run automatically",
+    "cn": "可以自动运行的命令"
+  },
+  {
+    "en": "MCP tools that can run automatically. Format: 'server:tool'",
+    "cn": "可以自动运行的 MCP 工具。格式：'server:tool'"
+  },
+  {
+    "en": "Prevent Agent from automatically running Browser tools",
+    "cn": "防止智能体自动运行浏览器工具"
+  },
+  {
+    "en": "Prevent Agent from automatically running MCP tools",
+    "cn": "防止智能体自动运行 MCP 工具"
+  },
+  {
+    "en": "Prevent Agent from deleting files automatically",
+    "cn": "防止智能体自动删除文件"
+  },
+  {
+    "en": "Prevent Agent from creating or modifying files outside of the workspace automatically",
+    "cn": "防止智能体自动在工作区外创建或修改文件"
+  },
+  {
+    "en": "Apply .cursorignore files to all subdirectories",
+    "cn": "将 .cursorignore 文件应用于所有子目录"
+  },
+  {
+    "en": "Use with caution. Skip symlinks during .cursorignore file discovery",
+    "cn": "谨慎使用。在发现 .cursorignore 文件时跳过符号链接"
+  },
+  {
+    "en": "Submit with ",
+    "cn": "提交方式："
+  },
+  {
+    "en": "Enter submits chat and Enter inserts a newline",
+    "cn": "Enter 提交聊天，Enter 插入新行"
+  },
+  {
+    "en": "When enabled, ",
+    "cn": "启用后，"
+  },
+  {
+    "en": "Automatically jump to the next diff when accepting changes with ",
+    "cn": "使用辅助键接受更改时，自动跳转到下一个差异处"
+  },
+  {
+    "en": "Automatically parse links when pasted into Quick Edit (",
+    "cn": "粘贴到快速编辑 ("
+  },
+  {
+    "en": "Preview Box for Terminal ",
+    "cn": "终端 Ctrl+K 预览框"
+  },
+  {
+    "en": "Mark Agent commits as 'Made with Cursor'",
+    "cn": "将智能体生成的提交标记为“由 Cursor 创作”"
+  },
+  {
+    "en": "Mark pull requests as made with Cursor",
+    "cn": "将拉取请求标记为“由 Cursor 创作”"
+  },
+  {
+    "en": "Show toolbar on text selection",
+    "cn": "选中文本时显示工具栏"
+  },
+  {
+    "en": "Automatically accept web search",
+    "cn": "自动接受网页搜索"
+  },
+  {
+    "en": "Accept the next word of a suggestion via ",
+    "cn": "通过采纳建议中的下一个词： "
+  },
+  {
+    "en": "Automatically import necessary modules for ",
+    "cn": "自动导入必要的模块： "
+  },
+  {
+    "en": "When all editors are closed, hide the editor area and maximize chat",
+    "cn": "当所有编辑器关闭时，隐藏编辑器区域并最大化聊天面板"
+  },
+  {
+    "en": "Show system notifications when Agent completes or needs attention",
+    "cn": "当智能体完成任务或需要注意时显示系统通知"
+  },
+  {
+    "en": "Show Cursor in system tray",
+    "cn": "在系统托盘中显示 Cursor"
+  },
+  {
+    "en": "Play a sound when Agent finishes responding",
+    "cn": "当智能体完成响应时播放音效"
+  },
+  {
+    "en": "Your codebase, prompts, edits and other usage data will be stored and trained on by Cursor to improve the product. Prompts and limited telemetry may also be shared with model providers when you explicitly select their models.",
+    "cn": "您的代码库、提示词、编辑记录及其他使用数据将被 Cursor 存储并用于训练以改进产品。当您明确选择其模型时，提示词和有限的遥测数据也可能与模型提供商共享。"
+  },
+  {
+    "en": "Type a message...",
+    "cn": "输入消息..."
+  },
+  { "en": "Entry-level plan with access to premium models, unlimited Tab completions, and more.", "cn": "入门级方案，可访问高级模型、无限次 Tab 补全等。" },
+  { "en": "all windows share the same layout", "cn": "所有窗口共享相同的布局" },
+  { "en": "Configure font, formatting, minimap and more", "cn": "配置字体、格式化、小地图等" },
+  { "en": "Configure keyboard shortcuts", "cn": "配置键盘快捷键" },
+  { "en": "Import settings, extensions, and keybindings from VS Code", "cn": "从 VS Code 导入设置、扩展和键位绑定" },
+  { "en": "K in the Terminal", "cn": "K 的提示" },
+  { "en": "Apply .cursorignore files to all subdirectories", "cn": "将 .cursorignore 文件应用于所有子目录" },
+  { "en": "Skip symlinks during .cursorignore file discovery", "cn": "在发现 .cursorignore 文件时跳过符号链接" },
+  { "en": "Automatically accept web search", "cn": "自动接受网页搜索" },
+  { "en": "Automatically parse links when pasted into Quick Edit (", "cn": "粘贴到快速编辑 (" },
+  { "en": "Mark Agent commits as 'Made with Cursor'", "cn": "将智能体生成的提交标记为“由 Cursor 创作”" },
+  { "en": "Mark pull requests as made with Cursor", "cn": "将拉取请求标记为“由 Cursor 创作”" },
+  { "en": "Show toolbar on text selection", "cn": "选中文本时显示工具栏" },
+  { "en": "Automatically jump to the next diff", "cn": "自动跳转到下一个差异" },
+  { "en": "Semantic search codebase", "cn": "语义化搜索代码库" },
+  { "en": "Research codebase", "cn": "研究代码库" },
+  { "en": "Files for Context", "cn": "上下文文件" },
+  { "en": "Open in Composer", "cn": "在 Composer 中打开" },
+  { "en": "Delete Chat", "cn": "删除对话" },
+  { "en": "Chat Settings", "cn": "对话设置" },
+  { "en": "Show in New Panel", "cn": "在新面板中显示" },
+  { "en": "Collapse all groups", "cn": "折叠所有组" },
+  { "en": "Expand all groups", "cn": "展开所有组" },
+  { "en": "Copy Chat to Clipboard", "cn": "复制对话到剪贴板" },
+  { "en": "Rules for AI (Beta)", "cn": "AI 规则 (公测)" },
+  { "en": "Toggle Model Sidebar", "cn": "切换模型侧边栏" },
+  { "en": "Privacy Statement", "cn": "隐私声明" },
+  { "en": "Change Logs", "cn": "更新日志" },
+  { "en": "Search codebase", "cn": "搜索代码库" },
+  { "en": "API Keys", "cn": "API 密钥" },
+  { "en": "Web Fetch Tool", "cn": "网页获取工具" },
+  { "en": "Web Search Tool", "cn": "网页搜索工具" },
+  { "en": "Reset \"Don't Ask Again\" Dialogs", "cn": "重置“不再询问”对话框" },
+  { "en": "See warnings and tips that you've hidden", "cn": "查看您已隐藏的警告和提示" },
+  {
+    "en": "'server:tool', 'server:*' for all tools from a server, '*:tool' for a tool from any server, or '*:*' for all tools from all servers",
+    "cn": "'server:tool'，'server:*' 代表服务器的所有工具，'*:tool' 代表任何服务器的一个工具，或 '*:*' 代表所有服务器的所有工具"
+  },
+  {
+    "en": "Domains that Agent can fetch from automatically. Use '*' for all domains, '*.example.com' for wildcard subdomains.",
+    "cn": "智能体可以自动获取内容的域名。使用 '*' 代表所有域名，'*.example.com' 代表通配符子域名。"
+  },
+  {
+    "en": "Where to open new agents",
+    "cn": "新智能体的打开位置"
+  },
+  {
+    "en": "Adjust the conversation text size",
+    "cn": "调整对话文本大小"
+  },
+  {
+    "en": "After periods of inactivity, open the Agent Pane to a new conversation",
+    "cn": "闲置一段时间后，打开智能体面板时开启新对话"
+  },
+  {
+    "en": "Limit how many chat tabs can be open at once",
+    "cn": "限制同时打开的对话标签页数量"
+  },
+  {
+    "en": "Adjust the default behavior of sending a message while Agent is running",
+    "cn": "调整智能体运行时发送消息的默认行为"
+  },
+  {
+    "en": "Contextual suggestions while prompting Agent",
+    "cn": "向智能体发送提示词时提供上下文建议"
+  },
+  {
+    "en": "Automatically review your changes for issues after each commit",
+    "cn": "每次提交后自动检查您的更改是否存在问题"
+  },
+  {
+    "en": "Include changes from Git submodules in the review",
+    "cn": "审查中包含 Git 子模块的更改"
+  },
+  {
+    "en": "Include untracked files (new files not yet added to Git) in the review",
+    "cn": "审查中包含未跟踪的文件（尚未添加到 Git 的新文件）"
+  },
+  {
+    "en": "Choose between quick or more thorough, higher-cost analysis",
+    "cn": "在快速分析或更彻底、成本更高的分析之间选择"
+  },
+  {
+    "en": "Allow Agent to search the web for relevant information",
+    "cn": "允许智能体在网上搜索相关信息"
+  },
+  {
+    "en": "Skip approval dialog; Agent may run web searches automatically",
+    "cn": "跳过审批对话框；智能体可能会自动执行网页搜索"
+  },
+  {
+    "en": "Allow Agent to fetch content from URLs",
+    "cn": "允许智能体从 URL 获取内容"
+  },
+  {
+    "en": "Only enable if your repository has many symlinks and all .cursorignore files are reachable without them. Changing this setting will require a restart of Cursor.",
+    "cn": "仅当您的存储库包含大量符号链接且无需它们即可访问所有 .cursorignore 文件时才启用。更改此设置需要重启 Cursor。"
+  },
+  {
+    "en": "Show inline diff decorations in the editor instead of only showing changes in the review panel",
+    "cn": "在编辑器中显示内联差异装饰，而不仅仅是在预览面板中显示更改"
+  },
+  {
+    "en": "Automatically format files when the agent finishes",
+    "cn": "智能体完成任务后自动格式化文件"
+  },
+  {
+    "en": "Use the legacy terminal tool in agent mode, for use on systems with unsupported shell configurations",
+    "cn": "在智能体模式下使用传统终端工具，适用于 shell 配置不受支持的系统"
+  },
+  {
+    "en": "Show Add to Chat & Quick Edit buttons when selecting code",
+    "cn": "选中文本时显示“添加到对话”和“快速编辑”按钮"
+  },
+  {
+    "en": "Automatically parse links when pasted into Quick Edit (Ctrl+K) input",
+    "cn": "在粘贴到快速编辑 (Ctrl+K) 输入框时自动解析链接"
+  },
+  {
+    "en": "Use themed background colors for inline code diffs",
+    "cn": "为内联代码差异使用主题背景颜色"
+  },
+  {
+    "en": "Use a preview box instead of streaming responses directly into the shell",
+    "cn": "使用预览框而不是直接将响应流式传输到 shell 中"
+  },
+  {
+    "en": "Collapse auto-run command output by default in Terminal command previews",
+    "cn": "在终端命令预览中默认折叠自动运行命令的输出"
+  },
+  {
+    "en": "Custom keywords that trigger auto-submit in voice mode. Only single words (no spaces) are allowed. Punctuation and capitalization are ignored.",
+    "cn": "在语音模式下触发自动提交的自定义关键字。仅允许单个单词（不含空格）。忽略标点和大小写。"
+  },
+  {
+    "en": "You can put in your OpenAI key to use OpenAI models at cost.",
+    "cn": "您可以输入您的 OpenAI 密钥，按成本价使用 OpenAI 模型。"
+  },
+  {
+    "en": "Enter your OpenAI API Key",
+    "cn": "输入您的 OpenAI API 密钥"
+  },
+  {
+    "en": "Change the base URL for OpenAI API requests.",
+    "cn": "更改 OpenAI API 请求的基准 URL。"
+  },
+  {
+    "en": "You can put in your your Anthropic key to use Claude at cost. 启用后, this key will be used for all models beginning with \"claude-\".",
+    "cn": "您可以输入 Anthropic 密钥，按成本价使用 Claude。启用后，此密钥将用于所有以 \"claude-\" 开头的模型。"
+  },
+  {
+    "en": "Enter your Anthropic API Key",
+    "cn": "输入您的 Anthropic API 密钥"
+  },
+  {
+    "en": "You can put in your your Google AI Studio key to use Google models at-cost.",
+    "cn": "您可以输入 Google AI Studio 密钥，按成本价使用 Google 模型。"
+  },
+  {
+    "en": "Enter your Google AI Studio API Key",
+    "cn": "输入您的 Google AI Studio API 密钥"
+  },
+  {
+    "en": "Configure Azure OpenAI to use OpenAI models through your Azure account.",
+    "cn": "配置 Azure OpenAI，通过您的 Azure 账户使用 OpenAI 模型。"
+  },
+  {
+    "en": "Enter your Azure OpenAI API Key",
+    "cn": "输入您的 Azure OpenAI API 密钥"
+  },
+  {
+    "en": "Configure AWS Bedrock to use Anthropic Claude models through your AWS account. Cursor Enterprise teams can configure IAM roles to access Bedrock without any Access Keys.",
+    "cn": "配置 AWS Bedrock，通过您的 AWS 账户使用 Anthropic Claude 模型。Cursor 企业版团队可以配置 IAM 角色，无需访问密钥即可访问 Bedrock。"
+  },
+  {
+    "en": "Base URL",
+    "cn": "基准 URL"
+  },
+  {
+    "en": "Deployment Name",
+    "cn": "部署名称"
+  },
+  {
+    "en": "Access Key ID",
+    "cn": "访问密钥 ID"
+  },
+  {
+    "en": "Secret Access Key",
+    "cn": "秘密访问密钥"
+  },
+  {
+    "en": "Region",
+    "cn": "区域"
+  },
+  {
+    "en": "Manage Settings",
+    "cn": "管理设置"
+  },
+  {
+    "en": "Connect GitHub/GitLab, manage team and user settings, and configure environments",
+    "cn": "连接 GitHub/GitLab，管理团队和用户设置，并配置环境"
+  },
+  {
+    "en": "Connect Slack",
+    "cn": "连接 Slack"
+  },
+  {
+    "en": "Work with Cloud Agents from Slack",
+    "cn": "从 Slack 使用 Cloud 智能体"
+  },
+  {
+    "en": "Connect",
+    "cn": "连接"
+  },
+  {
+    "en": "Open",
+    "cn": "打开"
+  },
+  {
+    "en": "Provide domain-specific knowledge and workflows for the agent",
+    "cn": "为智能体提供特定领域的知识和工作流"
+  },
+  {
+    "en": "Include third-party Plugins, Skills, and other configs",
+    "cn": "包含第三方插件、技能和其他配置"
+  },
+  {
+    "en": "Automatically import agent configs from other tools",
+    "cn": "自动从其他工具导入智能体配置"
+  },
+  {
+    "en": "Use Rules to guide agent behavior, like enforcing best practices or coding standards. Rules can be applied always, by file path, or manually.",
+    "cn": "使用规则来引导智能体行为，如强制执行最佳实践或代码标准。规则可以始终应用、按文件路径应用或手动应用。"
+  },
+  {
+    "en": "Skills are specialized capabilities that help the agent accomplish specific tasks. Skills will be invoked by the agent when relevant or can be triggered manually with / in chat.",
+    "cn": "技能是帮助智能体完成特定任务的专业能力。技能将在相关时被智能体调用，或可通过在对话中使用 / 手动触发。"
+  },
+  {
+    "en": "Skills help the agent accomplish specific tasks",
+    "cn": "技能可帮助智能体完成特定任务"
+  },
+  {
+    "en": "Create specialized agents for complex tasks. Subagents can be invoked by the agent to handle focused work in parallel.",
+    "cn": "为复杂任务创建专业智能体。子智能体可以被智能体调用，并行处理专注的工作。"
+  },
+  {
+    "en": "Create specialized agents to handle focused tasks",
+    "cn": "创建专业智能体来处理专注的任务"
+  },
+  {
+    "en": "Create reusable workflows triggered with / prefix in chat. Use commands to standardize processes and make common tasks more efficient.",
+    "cn": "创建在对话中通过 / 前缀触发的可重用工作流。使用命令来标准化流程，提高常见任务的效率。"
+  },
+  {
+    "en": "Create commands to build reusable workflows",
+    "cn": "创建命令以构建可重用的工作流"
+  },
+  {
+    "en": "All",
+    "cn": "全部"
+  },
+  {
+    "en": "User",
+    "cn": "用户"
+  },
+  {
+    "en": "No Skills Yet",
+    "cn": "暂无技能"
+  },
+  {
+    "en": "No Subagents Yet",
+    "cn": "暂无子智能体"
+  },
+  {
+    "en": "No Commands Yet",
+    "cn": "暂无命令"
+  },
+  {
+    "en": "New Skill",
+    "cn": "新建技能"
+  },
+  {
+    "en": "New Subagent",
+    "cn": "新建子智能体"
+  },
+  {
+    "en": "New Command",
+    "cn": "新建命令"
+  },
+  {
+    "en": "Browser automation disabled",
+    "cn": "浏览器自动化已禁用"
+  },
+  {
+    "en": "Automatically open localhost links in the Browser Tab",
+    "cn": "自动在浏览器标签页中打开本地主机链接"
+  },
+  {
+    "en": "Installed MCP Servers",
+    "cn": "已安装的 MCP 服务器"
+  },
+  {
+    "en": "No MCP Tools",
+    "cn": "暂无 MCP 工具"
+  },
+  {
+    "en": "Add a custom MCP tool here or configure project-specific tools in <project-root>/.cursor/mcp.json",
+    "cn": "在此添加自定义 MCP 工具，或在 <项目根目录>/.cursor/mcp.json 中配置项目特定工具"
+  },
+  {
+    "en": "Add Custom MCP",
+    "cn": "添加自定义 MCP"
+  },
+  {
+    "en": "Hooks let you run custom scripts at specific points during the agent's execution to modify behavior, enforce policies, or add custom logging.",
+    "cn": "钩子允许您在智能体执行期间的特定时间点运行自定义脚本，以修改行为、执行策略或添加自定义日志。"
+  },
+  {
+    "en": "Configured Hooks (0)",
+    "cn": "已配置的钩子 (0)"
+  },
+  {
+    "en": "No hooks configured",
+    "cn": "未配置钩子"
+  },
+  {
+    "en": "Execution Log",
+    "cn": "执行日志"
+  },
+  {
+    "en": "No hook executions yet",
+    "cn": "暂无钩子执行记录"
+  },
+  {
+    "en": "Clear log",
+    "cn": "清除日志"
+  },
+  {
+    "en": "Embed codebase for improved contextual understanding and knowledge. Embeddings and metadata are stored in the cloud, but all code is stored locally.",
+    "cn": "嵌入代码库以提升上下文理解和知识。嵌入向量和元数据存储在云端，但所有代码均存储在本地。"
+  },
+  {
+    "en": "Automatically index any new folders with fewer than 50,000 files",
+    "cn": "自动索引文件少于 50,000 个的新文件夹"
+  },
+  {
+    "en": "Files to exclude from indexing in addition to .gitignore. View included files.",
+    "cn": "除 .gitignore 之外，需要从索引中排除的文件。查看包含的文件。"
+  },
+  {
+    "en": "Automatically index repositories to speed up Grep searches. All data is stored locally.",
+    "cn": "自动索引存储库以加速 Grep 搜索。所有数据均存储在本地。"
+  },
+  {
+    "en": "Crawl and index custom resources and developer docs",
+    "cn": "抓取并索引自定义资源和开发者文档"
+  },
+  {
+    "en": "Add documentation to use as context. You can also use @Add in Chat or while editing to add a doc.",
+    "cn": "添加文档以用作上下文。您也可以在对话中使用 @Add 或在编辑时添加文档。"
+  },
+  {
+    "en": "Sync",
+    "cn": "同步"
+  },
+  {
+    "en": "Delete Index",
+    "cn": "删除索引"
+  },
+  {
+    "en": "Edit",
+    "cn": "编辑"
+  },
+  {
+    "en": "Add Doc",
+    "cn": "添加文档"
+  },
+  {
+    "en": "+ Add Doc",
+    "cn": "+ 添加文档"
+  },
+  {
+    "en": "No Docs Added",
+    "cn": "暂无已添加文档"
+  },
+  {
+    "en": "HTTP Compatibility Mode",
+    "cn": "HTTP 兼容模式"
+  },
+  {
+    "en": "HTTP/2 is recommended for low-latency streaming. In some corporate proxy and VPN environments, the compatibility mode may need to be lowered.",
+    "cn": "推荐使用 HTTP/2 以实现低延迟串流。在某些公司代理和 VPN 环境下，可能需要降低兼容模式。"
+  },
+  {
+    "en": "Required Domains",
+    "cn": "必需域名"
+  },
+  {
+    "en": "These domains must be accessible for Cursor to function. Add them to your firewall or proxy allowlist.",
+    "cn": "这些域名必须可访问，Cursor 才能正常运行。请将它们添加到您的防火墙或代理许可列表（白名单）中。"
+  },
+  {
+    "en": "Network Diagnostics",
+    "cn": "网络诊断"
+  },
+  {
+    "en": "Check network connectivity to all Cursor services",
+    "cn": "检查与所有 Cursor 服务的网络连通性"
+  },
+  {
+    "en": "Copy Domains",
+    "cn": "复制域名"
+  },
+  {
+    "en": "Run Diagnostic",
+    "cn": "运行诊断"
+  },
+  {
+    "en": "Show",
+    "cn": "显示"
+  },
+  {
+    "en": "Update Access",
+    "cn": "更新通道"
+  },
+  {
+    "en": "By default, get notifications for stable updates. In Early Access, pre-release builds may be unstable for production work.",
+    "cn": "默认情况下，接收稳定版更新通知。在早期访问 (Early Access) 中，预发布版本可能对生产工作不稳定。"
+  },
+  {
+    "en": "Extension RPC Tracer",
+    "cn": "扩展 RPC 追踪器"
+  },
+  {
+    "en": "Log extension host RPC messages to JSON files viewable in Perfetto for performance analysis. Requires a restart to take effect.",
+    "cn": "将扩展主机 RPC 消息记录到 JSON 文件中，以便在 Perfetto 中查看进行性能分析。需要重启方能生效。"
+  },
+  {
+    "en": "Development",
+    "cn": "开发"
+  },
+  {
+    "en": "Default",
+    "cn": "默认"
+  },
+  {
+    "en": "Marketplace",
+    "cn": "市场"
+  },
+  {
+    "en": "Docs",
+    "cn": "文档"
+  }
+]

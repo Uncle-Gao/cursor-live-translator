@@ -1,6 +1,6 @@
 {
   "name": "cursor-settings-zh",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Cursor Settings 界面深度补丁汉化工具，一键汉化、碎步补全、校验修复、平台自适应及一键还原。",
   "main": "cursor_zh_pro.js",
   "bin": "cursor_zh_pro.js",
@@ -18,7 +18,15 @@
     "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist"
   },
   "pkg": {
-    "assets": [],
+    "scripts": [],
+    "assets": [
+      "i18n/*.json"
+    ],
+    "targets": [
+      "node18-win-x64",
+      "node18-macos-x64",
+      "node18-linux-x64"
+    ],
     "outputPath": "dist"
   },
   "author": "Uncle-Gao",
