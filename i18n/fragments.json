@@ -103,40 +103,142 @@
     "en": "Type a message...",
     "cn": "输入消息..."
   },
-  { "en": "Entry-level plan with access to premium models, unlimited Tab completions, and more.", "cn": "入门级方案，可访问高级模型、无限次 Tab 补全等。" },
-  { "en": "all windows share the same layout", "cn": "所有窗口共享相同的布局" },
-  { "en": "Configure font, formatting, minimap and more", "cn": "配置字体、格式化、小地图等" },
-  { "en": "Configure keyboard shortcuts", "cn": "配置键盘快捷键" },
-  { "en": "Import settings, extensions, and keybindings from VS Code", "cn": "从 VS Code 导入设置、扩展和键位绑定" },
-  { "en": "K in the Terminal", "cn": "K 的提示" },
-  { "en": "Apply .cursorignore files to all subdirectories", "cn": "将 .cursorignore 文件应用于所有子目录" },
-  { "en": "Skip symlinks during .cursorignore file discovery", "cn": "在发现 .cursorignore 文件时跳过符号链接" },
-  { "en": "Automatically accept web search", "cn": "自动接受网页搜索" },
-  { "en": "Automatically parse links when pasted into Quick Edit (", "cn": "粘贴到快速编辑 (" },
-  { "en": "Mark Agent commits as 'Made with Cursor'", "cn": "将智能体生成的提交标记为“由 Cursor 创作”" },
-  { "en": "Mark pull requests as made with Cursor", "cn": "将拉取请求标记为“由 Cursor 创作”" },
-  { "en": "Show toolbar on text selection", "cn": "选中文本时显示工具栏" },
-  { "en": "Automatically jump to the next diff", "cn": "自动跳转到下一个差异" },
-  { "en": "Semantic search codebase", "cn": "语义化搜索代码库" },
-  { "en": "Research codebase", "cn": "研究代码库" },
-  { "en": "Files for Context", "cn": "上下文文件" },
-  { "en": "Open in Composer", "cn": "在 Composer 中打开" },
-  { "en": "Delete Chat", "cn": "删除对话" },
-  { "en": "Chat Settings", "cn": "对话设置" },
-  { "en": "Show in New Panel", "cn": "在新面板中显示" },
-  { "en": "Collapse all groups", "cn": "折叠所有组" },
-  { "en": "Expand all groups", "cn": "展开所有组" },
-  { "en": "Copy Chat to Clipboard", "cn": "复制对话到剪贴板" },
-  { "en": "Rules for AI (Beta)", "cn": "AI 规则 (公测)" },
-  { "en": "Toggle Model Sidebar", "cn": "切换模型侧边栏" },
-  { "en": "Privacy Statement", "cn": "隐私声明" },
-  { "en": "Change Logs", "cn": "更新日志" },
-  { "en": "Search codebase", "cn": "搜索代码库" },
-  { "en": "API Keys", "cn": "API 密钥" },
-  { "en": "Web Fetch Tool", "cn": "网页获取工具" },
-  { "en": "Web Search Tool", "cn": "网页搜索工具" },
-  { "en": "Reset \"Don't Ask Again\" Dialogs", "cn": "重置“不再询问”对话框" },
-  { "en": "See warnings and tips that you've hidden", "cn": "查看您已隐藏的警告和提示" },
+  {
+    "en": "Entry-level plan with access to premium models, unlimited Tab completions, and more.",
+    "cn": "入门级方案，可访问高级模型、无限次 Tab 补全等。"
+  },
+  {
+    "en": "all windows share the same layout",
+    "cn": "所有窗口共享相同的布局"
+  },
+  {
+    "en": "Configure font, formatting, minimap and more",
+    "cn": "配置字体、格式化、小地图等"
+  },
+  {
+    "en": "Configure keyboard shortcuts",
+    "cn": "配置键盘快捷键"
+  },
+  {
+    "en": "Import settings, extensions, and keybindings from VS Code",
+    "cn": "从 VS Code 导入设置、扩展和键位绑定"
+  },
+  {
+    "en": "K in the Terminal",
+    "cn": "K 的提示"
+  },
+  {
+    "en": "Apply .cursorignore files to all subdirectories",
+    "cn": "将 .cursorignore 文件应用于所有子目录"
+  },
+  {
+    "en": "Skip symlinks during .cursorignore file discovery",
+    "cn": "在发现 .cursorignore 文件时跳过符号链接"
+  },
+  {
+    "en": "Automatically accept web search",
+    "cn": "自动接受网页搜索"
+  },
+  {
+    "en": "Automatically parse links when pasted into Quick Edit (",
+    "cn": "粘贴到快速编辑 ("
+  },
+  {
+    "en": "Mark Agent commits as 'Made with Cursor'",
+    "cn": "将智能体生成的提交标记为“由 Cursor 创作”"
+  },
+  {
+    "en": "Mark pull requests as made with Cursor",
+    "cn": "将拉取请求标记为“由 Cursor 创作”"
+  },
+  {
+    "en": "Show toolbar on text selection",
+    "cn": "选中文本时显示工具栏"
+  },
+  {
+    "en": "Automatically jump to the next diff",
+    "cn": "自动跳转到下一个差异"
+  },
+  {
+    "en": "Semantic search codebase",
+    "cn": "语义化搜索代码库"
+  },
+  {
+    "en": "Research codebase",
+    "cn": "研究代码库"
+  },
+  {
+    "en": "Files for Context",
+    "cn": "上下文文件"
+  },
+  {
+    "en": "Open in Composer",
+    "cn": "在 Composer 中打开"
+  },
+  {
+    "en": "Delete Chat",
+    "cn": "删除对话"
+  },
+  {
+    "en": "Chat Settings",
+    "cn": "对话设置"
+  },
+  {
+    "en": "Show in New Panel",
+    "cn": "在新面板中显示"
+  },
+  {
+    "en": "Collapse all groups",
+    "cn": "折叠所有组"
+  },
+  {
+    "en": "Expand all groups",
+    "cn": "展开所有组"
+  },
+  {
+    "en": "Copy Chat to Clipboard",
+    "cn": "复制对话到剪贴板"
+  },
+  {
+    "en": "Rules for AI (Beta)",
+    "cn": "AI 规则 (公测)"
+  },
+  {
+    "en": "Toggle Model Sidebar",
+    "cn": "切换模型侧边栏"
+  },
+  {
+    "en": "Privacy Statement",
+    "cn": "隐私声明"
+  },
+  {
+    "en": "Change Logs",
+    "cn": "更新日志"
+  },
+  {
+    "en": "Search codebase",
+    "cn": "搜索代码库"
+  },
+  {
+    "en": "API Keys",
+    "cn": "API 密钥"
+  },
+  {
+    "en": "Web Fetch Tool",
+    "cn": "网页获取工具"
+  },
+  {
+    "en": "Web Search Tool",
+    "cn": "网页搜索工具"
+  },
+  {
+    "en": "Reset \"Don't Ask Again\" Dialogs",
+    "cn": "重置“不再询问”对话框"
+  },
+  {
+    "en": "See warnings and tips that you've hidden",
+    "cn": "查看您已隐藏的警告和提示"
+  },
   {
     "en": "'server:tool', 'server:*' for all tools from a server, '*:tool' for a tool from any server, or '*:*' for all tools from all servers",
     "cn": "'server:tool'，'server:*' 代表服务器的所有工具，'*:tool' 代表任何服务器的一个工具，或 '*:*' 代表所有服务器的所有工具"
@@ -294,10 +396,6 @@
     "cn": "秘密访问密钥"
   },
   {
-    "en": "Region",
-    "cn": "区域"
-  },
-  {
     "en": "Manage Settings",
     "cn": "管理设置"
   },
@@ -312,14 +410,6 @@
   {
     "en": "Work with Cloud Agents from Slack",
     "cn": "从 Slack 使用 Cloud 智能体"
-  },
-  {
-    "en": "Connect",
-    "cn": "连接"
-  },
-  {
-    "en": "Open",
-    "cn": "打开"
   },
   {
     "en": "Provide domain-specific knowledge and workflows for the agent",
@@ -360,14 +450,6 @@
   {
     "en": "Create commands to build reusable workflows",
     "cn": "创建命令以构建可重用的工作流"
-  },
-  {
-    "en": "All",
-    "cn": "全部"
-  },
-  {
-    "en": "User",
-    "cn": "用户"
   },
   {
     "en": "No Skills Yet",
@@ -466,16 +548,8 @@
     "cn": "添加文档以用作上下文。您也可以在对话中使用 @Add 或在编辑时添加文档。"
   },
   {
-    "en": "Sync",
-    "cn": "同步"
-  },
-  {
     "en": "Delete Index",
     "cn": "删除索引"
-  },
-  {
-    "en": "Edit",
-    "cn": "编辑"
   },
   {
     "en": "Add Doc",
@@ -522,10 +596,6 @@
     "cn": "运行诊断"
   },
   {
-    "en": "Show",
-    "cn": "显示"
-  },
-  {
     "en": "Update Access",
     "cn": "更新通道"
   },
@@ -540,21 +610,5 @@
   {
     "en": "Log extension host RPC messages to JSON files viewable in Perfetto for performance analysis. Requires a restart to take effect.",
     "cn": "将扩展主机 RPC 消息记录到 JSON 文件中，以便在 Perfetto 中查看进行性能分析。需要重启方能生效。"
-  },
-  {
-    "en": "Development",
-    "cn": "开发"
-  },
-  {
-    "en": "Default",
-    "cn": "默认"
-  },
-  {
-    "en": "Marketplace",
-    "cn": "市场"
-  },
-  {
-    "en": "Docs",
-    "cn": "文档"
   }
 ]
