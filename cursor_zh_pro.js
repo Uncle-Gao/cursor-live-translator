@@ -47,52 +47,85 @@ function getPaths(customRoot = null) {
     };
 }
 
-// === 2. 加载翻译数据 ===
+// === 2. 加载翻译数据并预编译四级引擎 ===
+const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const flattenDict = (obj, res = {}) => {
+    for (let key in obj) {
+        if (typeof obj[key] === 'object' && obj[key] !== null) {
+            flattenDict(obj[key], res);
+        } else {
+            res[key] = obj[key];
+        }
+    }
+    return res;
+};
+
+function buildEngines(dictionary) {
+    // UI 属性上下文模式（L4 短词专用：只在这类属性语境内替换短词）
+    const UI_PROPS = 'children|title|label|placeholder|description|tooltip|text';
+
+    // 按长度降序排列，确保长句优先匹配，避免被短词截胡
+    const entries = Object.entries(dictionary).sort((a, b) => b[0].length - a[0].length);
+
+    // 分级：≥10字符 → 安全长句；<10字符 → 危险短词
+    const longEntries  = entries.filter(([en]) => en.length >= 10);
+    const shortEntries = entries.filter(([en]) => en.length < 10);
+
+    // L2: 被引号包裹的安全长句，单次大正则全量扫描
+    const safePattern   = longEntries.map(([en]) => escapeRegExp(en)).join('|');
+    const safeMap       = Object.fromEntries(longEntries);
+    const safeMegaRegex = safePattern
+        ? new RegExp('(["\`\'])(' + safePattern + ')\\1', 'g')
+        : null;
+
+    // L3: 裸长文本（≥20字符几乎不可能是代码标识符，无引号也可安全替换）
+    const bareEntries   = longEntries.filter(([en]) => en.length >= 20);
+    const barePattern   = bareEntries.map(([en]) => escapeRegExp(en)).join('|');
+    const bareMap       = Object.fromEntries(bareEntries);
+    const bareMegaRegex = barePattern ? new RegExp('(' + barePattern + ')', 'g') : null;
+
+    // L4: 危险短词，仅在明确的 UI 属性赋值上下文中精准命中
+    const riskyRegexes = shortEntries.map(([en, zh]) => {
+        const esc = escapeRegExp(en);
+        return {
+            zh,
+            propRegex: new RegExp('(' + UI_PROPS + ')\\s*:\\s*(["\`\'])(' + esc + ')\\2', 'g'),
+            jsxRegex:  new RegExp('(null|}|\\w)\\s*,\\s*(["\`\'])(' + esc + ')\\2\\s*(?=[,)])', 'g'),
+            htmlRegex: new RegExp('>\\s*(' + esc + ')\\s*<', 'g'),
+        };
+    });
+
+    return { safeMegaRegex, safeMap, bareMegaRegex, bareMap, riskyRegexes };
+}
+
 function loadI18n() {
     try {
         const dictPath = path.join(__dirname, 'i18n', 'dictionary.json');
         const fragPath = path.join(__dirname, 'i18n', 'fragments.json');
-        
-        // 递归展开嵌套字典的辅助函数
-        const flattenDict = (obj, res = {}) => {
-            for (let key in obj) {
-                if (typeof obj[key] === 'object' && obj[key] !== null) {
-                    flattenDict(obj[key], res);
-                } else {
-                    res[key] = obj[key];
-                }
-            }
-            return res;
-        };
-
         let rawDictionary = {};
         let fragments = [];
 
-        if (fs.existsSync(dictPath)) {
-            rawDictionary = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-        }
-        if (fs.existsSync(fragPath)) {
-            fragments = JSON.parse(fs.readFileSync(fragPath, 'utf8'));
-        }
+        if (fs.existsSync(dictPath)) rawDictionary = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
+        if (fs.existsSync(fragPath)) fragments = JSON.parse(fs.readFileSync(fragPath, 'utf8'));
 
-        // 执行字典扁平化处理
         const dictionary = flattenDict(rawDictionary);
 
-        // 如果读取失败或为空，抛出警告
         if (Object.keys(dictionary).length === 0) {
             console.warn('\x1b[33m⚠️ 警告: 字典文件为空或未找到，将使用内置极简词库。\x1b[0m');
-            return { dictionary: { "General": "常规" }, fragments };
+            return { engines: buildEngines({ 'General': '常规' }), fragments };
         }
 
-        return { dictionary, fragments };
+        return { engines: buildEngines(dictionary), fragments };
     } catch (err) {
         console.error('❌ 加载 i18n 数据失败:', err.message);
-        return { dictionary: { "General": "常规" }, fragments: [] };
+        return { engines: buildEngines({ 'General': '常规' }), fragments: [] };
     }
 }
 
-// 代理原来的常量定义
-const { dictionary, fragments } = loadI18n();
+// 模块加载时一次性构建所有预编译引擎
+const { engines, fragments } = loadI18n();
+
 
 // === 3. 核心逻辑 ===
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -251,8 +284,7 @@ function runLocalization(paths) {
     });
 
     let totalCount = 0;
-    const finalMissed = new Set([...Object.keys(dictionary), ...fragments.map(f => f.en)]);
-    const dictionaryEntries = Object.entries(dictionary);
+    const finalMissed = new Set([...fragments.map(f => f.en)]);
 
     console.log(`\n扫描到 ${targets.length} 个汉化目标文件。`);
 
@@ -263,35 +295,43 @@ function runLocalization(paths) {
         let fileCount = 0;
         let changed = false;
 
-        // 2. 执行标准字典替换
-        for (const [en, cn] of dictionaryEntries) {
-            const escapedEn = en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            let regex;
-            
-            if (target.type === 'js') {
-                // 增加防呆断言：防止匹配对象属性(:)和赋值(=)以及文件路径
-                regex = new RegExp(`(["'\`>])(${escapedEn})(["'\`<])(?=\\s*(?![:=]))(?!.*\\.(?:js|css|json|png|svg))`, 'g');
-            } else {
-                regex = new RegExp(`(")(${escapedEn})(")`, 'g');
-            }
-            
-            if (content.match(regex)) {
-                content = content.replace(regex, `$1${cn}$3`);
-                fileCount++;
-                totalCount++;
-                finalMissed.delete(en);
-                changed = true;
-            }
+        // === 四级精准注入引擎 ===
+        const { safeMegaRegex, safeMap, bareMegaRegex, bareMap, riskyRegexes } = engines;
+
+        // L2: 安全长句（被引号包裹，按长度降序优先命中）
+        if (safeMegaRegex) {
+            safeMegaRegex.lastIndex = 0;
+            content = content.replace(safeMegaRegex, (match, quote, en) => {
+                if (safeMap[en]) { fileCount++; totalCount++; changed = true; return `${quote}${safeMap[en]}${quote}`; }
+                return match;
+            });
         }
 
-        // 3. 执行碎片化补全
+        // L3: 裸长文本（≥20字符，无引号也可安全替换）
+        if (bareMegaRegex) {
+            bareMegaRegex.lastIndex = 0;
+            content = content.replace(bareMegaRegex, (match, en) => {
+                if (bareMap[en]) { fileCount++; totalCount++; changed = true; return bareMap[en]; }
+                return match;
+            });
+        }
+
+        // L4: 危险短词（仅在 children/title/label 等 UI 属性上下文中精准替换）
+        for (const { zh, propRegex, jsxRegex, htmlRegex } of riskyRegexes) {
+            const before = content.length;
+            propRegex.lastIndex = 0; jsxRegex.lastIndex = 0; htmlRegex.lastIndex = 0;
+            content = content.replace(propRegex, `$1: $2${zh}$2`);
+            content = content.replace(jsxRegex,  `$1, $2${zh}$2`);
+            content = content.replace(htmlRegex, `>${zh}<`);
+            if (content.length !== before) { fileCount++; totalCount++; changed = true; }
+        }
+
+        // L5: fragments 碎片化补全（长文本上下文片段）
         for (const item of fragments) {
             if (content.includes(item.en)) {
                 content = content.split(item.en).join(item.cn);
-                fileCount++;
-                totalCount++;
+                fileCount++; totalCount++; changed = true;
                 finalMissed.delete(item.en);
-                changed = true;
             }
         }
 
@@ -300,6 +340,7 @@ function runLocalization(paths) {
             console.log(`  ✓ [${target.type.toUpperCase()}] ${path.relative(paths.root, target.path).substring(0, 60)} (${fileCount} 处)`);
         }
     });
+
 
     // 5. 自动修复校验 (Fix Checksum)
     console.log('\n正在自动修复文件校验值...');
