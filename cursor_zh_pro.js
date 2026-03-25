@@ -2,16 +2,32 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const readline = require('readline');
+const os = require('os');
 
 /**
- * Cursor 汉化 Pro 版
- * 功能：一键汉化 + 全平台适配 + 自动修复校验 (Checksum)
- * 适配版本：2.6.19
+ * Cursor 汉化 Pro 版 (V2 架构：HTML 注入 + DOM 懒翻译)
+ * 适配版本：2.6.21+
  */
-
 const BASE_CURSOR_VERSION = '2.6.21';
 
-// === 1. 环境与路径检测 ===
+// === 1. 环境与持久化配置 ===
+const CONFIG_DIR = path.join(os.homedir(), '.cursor_zh_pro');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+
+function ensureConfigDir() {
+    if (!fs.existsSync(CONFIG_DIR)) {
+        try { fs.mkdirSync(CONFIG_DIR, { recursive: true }); } catch (e) {}
+    }
+}
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
+
+/**
+ * 核心路径探测与解析
+ * 根据当前操作系统（Win/Mac/Linux），自动定位 Cursor 的底层核心目录
+ * @param {string} customRoot - 用户自定义的根目录（如果自动探测失败）
+ */
 function getPaths(customRoot = null) {
     let appRoot = customRoot;
     
@@ -23,7 +39,6 @@ function getPaths(customRoot = null) {
         } else if (platform === 'darwin') {
             appRoot = '/Applications/Cursor.app/Contents/Resources/app';
         } else {
-            // Linux 常见路径
             const possibleLinuxPaths = [
                 '/usr/lib/cursor/resources/app',
                 '/opt/cursor/resources/app',
@@ -37,19 +52,24 @@ function getPaths(customRoot = null) {
         return null;
     }
 
+    const workbenchDir = path.join(appRoot, 'out', 'vs', 'code', 'electron-sandbox', 'workbench');
+
     return {
         root: appRoot,
-        mainJs: path.join(appRoot, 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
-        nlsJson: path.join(appRoot, 'out', 'nls.messages.json'),
+        workbenchDir: workbenchDir,
+        workbenchHtml: path.join(workbenchDir, 'workbench.html'),
+        workbenchJs: path.join(workbenchDir, 'workbench.js'),
+        cursorI18nJs: path.join(workbenchDir, 'cursor-i18n.js'),
         productJson: path.join(appRoot, 'product.json'),
+        // 旧版 v1 路径用于清理和恢复
+        mainJs: path.join(appRoot, 'out', 'vs', 'workbench', 'workbench.desktop.main.js'),
         backupMainJs: path.join(appRoot, 'out', 'vs', 'workbench', 'workbench.desktop.main.js.bak'),
+        nlsJson: path.join(appRoot, 'out', 'nls.messages.json'),
         backupNlsJson: path.join(appRoot, 'out', 'nls.messages.json.bak')
     };
 }
 
-// === 2. 加载翻译数据并预编译四级引擎 ===
-const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+// === 2. 加载字典 ===
 const flattenDict = (obj, res = {}) => {
     for (let key in obj) {
         if (typeof obj[key] === 'object' && obj[key] !== null) {
@@ -61,76 +81,52 @@ const flattenDict = (obj, res = {}) => {
     return res;
 };
 
-function buildEngines(dictionary) {
-    // UI 属性上下文模式（L4 短词专用：只在这类属性语境内替换短词）
-    const UI_PROPS = 'children|title|label|placeholder|description|tooltip|text';
-
-    // 按长度降序排列，确保长句优先匹配，避免被短词截胡
-    const entries = Object.entries(dictionary).sort((a, b) => b[0].length - a[0].length);
-
-    // 分级：≥10字符 → 安全长句；<10字符 → 危险短词
-    const longEntries  = entries.filter(([en]) => en.length >= 10);
-    const shortEntries = entries.filter(([en]) => en.length < 10);
-
-    // L2: 被引号包裹的安全长句，单次大正则全量扫描
-    const safePattern   = longEntries.map(([en]) => escapeRegExp(en)).join('|');
-    const safeMap       = Object.fromEntries(longEntries);
-    const safeMegaRegex = safePattern
-        ? new RegExp('(["\`\'])(' + safePattern + ')\\1', 'g')
-        : null;
-
-    // L3: 裸长文本（≥20字符几乎不可能是代码标识符，无引号也可安全替换）
-    const bareEntries   = longEntries.filter(([en]) => en.length >= 20);
-    const barePattern   = bareEntries.map(([en]) => escapeRegExp(en)).join('|');
-    const bareMap       = Object.fromEntries(bareEntries);
-    const bareMegaRegex = barePattern ? new RegExp('(' + barePattern + ')', 'g') : null;
-
-    // L4: 危险短词，仅在明确的 UI 属性赋值上下文中精准命中
-    const riskyRegexes = shortEntries.map(([en, zh]) => {
-        const esc = escapeRegExp(en);
-        return {
-            zh,
-            propRegex: new RegExp('(' + UI_PROPS + ')\\s*:\\s*(["\`\'])(' + esc + ')\\2', 'g'),
-            jsxRegex:  new RegExp('(null|}|\\w)\\s*,\\s*(["\`\'])(' + esc + ')\\2\\s*(?=[,)])', 'g'),
-            htmlRegex: new RegExp('>\\s*(' + esc + ')\\s*<', 'g'),
-        };
-    });
-
-    return { safeMegaRegex, safeMap, bareMegaRegex, bareMap, riskyRegexes };
-}
-
 function loadI18n() {
+    let resultDict = {
+        "Manage Account": "管理账号",
+        "Upgrade to Pro": "升级到 Pro"
+    };
     try {
+        // 全量 V2 主字典
         const dictPath = path.join(__dirname, 'i18n', 'dictionary.json');
-        const fragPath = path.join(__dirname, 'i18n', 'fragments.json');
-        let rawDictionary = {};
-        let fragments = [];
-
-        if (fs.existsSync(dictPath)) rawDictionary = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-        if (fs.existsSync(fragPath)) fragments = JSON.parse(fs.readFileSync(fragPath, 'utf8'));
-
-        const dictionary = flattenDict(rawDictionary);
-
-        if (Object.keys(dictionary).length === 0) {
-            console.warn('\x1b[33m⚠️ 警告: 字典文件为空或未找到，将使用内置极简词库。\x1b[0m');
-            return { engines: buildEngines({ 'General': '常规' }), fragments };
+        if (fs.existsSync(dictPath)) {
+            const rawDictionary = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
+            Object.assign(resultDict, flattenDict(rawDictionary));
         }
-
-        return { engines: buildEngines(dictionary), fragments };
     } catch (err) {
         console.error('❌ 加载 i18n 数据失败:', err.message);
-        return { engines: buildEngines({ 'General': '常规' }), fragments: [] };
     }
+    return resultDict;
 }
 
-// 模块加载时一次性构建所有预编译引擎
-const { engines, fragments } = loadI18n();
+const I18N_DICT = loadI18n();
 
-
-// === 3. 核心逻辑 ===
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-const askQuestion = (query) => new Promise(resolve => rl.question(query, resolve));
+// === 3. 配置管理 ===
+function loadConfig() {
+    ensureConfigDir();
+    if (fs.existsSync(CONFIG_PATH)) {
+        try { 
+            const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+            // 补全由于升级可能缺失的字段
+            if (!cfg.engines) cfg.engines = {};
+            return cfg;
+        } catch (e) {}
+    }
+    return { 
+        activeId: 'none', 
+        engines: {
+            openai: { endpoint: 'https://api.openai.com/v1/chat/completions', apiKey: '', model: 'gpt-4o-mini' },
+            deepseek: { endpoint: 'https://api.deepseek.com/chat/completions', apiKey: '', model: 'deepseek-chat' },
+            qwen: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', apiKey: '', model: 'qwen-turbo' },
+            kimi: { endpoint: 'https://api.moonshot.cn/v1/chat/completions', apiKey: '', model: 'moonshot-v1-8k' },
+            deepl: { endpoint: 'https://api-free.deepl.com/v2/translate', apiKey: '' }
+        }
+    };
+}
+function saveConfig(cfg) {
+    ensureConfigDir();
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+}
 
 async function main() {
     let paths = getPaths();
@@ -144,7 +140,6 @@ async function main() {
             process.exit(0);
         }
 
-        // 智能补全常见安装路径缺陷
         let testPaths = [
             customPath,
             path.join(customPath, 'resources', 'app'),
@@ -166,7 +161,8 @@ async function main() {
 
 function cleanOrphanedBackups(paths) {
     let deletedCount = 0;
-    const dirsToScan = [
+    // 清理可能存在的旧版 V1 残留备份
+    const scanDirs = [
         path.join(paths.root, 'out'),
         path.join(paths.root, 'extensions')
     ];
@@ -180,9 +176,7 @@ function cleanOrphanedBackups(paths) {
                 if (fs.statSync(fullPath).isDirectory()) {
                     scanAndClean(fullPath);
                 } else if (file.endsWith('.bak')) {
-                    // 只针对汉化工具命名的特定文件清理，且排除掉当下版本的后缀
-                    if (!file.includes(`.${paths.version}.bak`) && 
-                        (file.includes('nls.json') || file.includes('nls.messages.json') || file.includes('workbench.desktop.main.js'))) {
+                    if (file.includes('workbench.desktop.main.js') || file.includes('nls.json') || file.includes('nls.messages.json')) {
                         fs.unlinkSync(fullPath);
                         deletedCount++;
                     }
@@ -191,363 +185,427 @@ function cleanOrphanedBackups(paths) {
         }
     };
 
-    dirsToScan.forEach(d => scanAndClean(d));
+    scanDirs.forEach(d => scanAndClean(d));
     return deletedCount;
 }
 
-function showMenu(paths) {
+async function showMenu(paths) {
     console.clear();
-    console.log(`\n==== Cursor 汉化 Pro Dashboard ====`);
-    console.log(` 适配版本 : ${BASE_CURSOR_VERSION}`);
-    console.log(` 运行平台 : ${process.platform}`);
-    console.log(` 挂载路径 : ${paths.root}`);
+    const config = loadConfig();
+    console.log(`\n==== Cursor 汉化 Pro: 实时本地化引擎 (V2.1 PRO) ====`);
+    console.log(` 架构方案 : Trusted Bootstrap + AI Real-time`);
+    const currentProduct = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
+    const version = currentProduct.version;
+    const bakPattern = `workbench.js.${version}.bak`;
+    const versionedBak = path.join(paths.workbenchDir, bakPattern);
+    const hasCurrentBak = fs.existsSync(versionedBak);
+    
+    // 扫描所有可能的旧备份
+    const allFiles = fs.readdirSync(paths.workbenchDir);
+    const otherBaks = allFiles.filter(f => (f.includes('.js.') || f.includes('.html.')) && f.endsWith('.bak') && !f.includes(version));
+
+    let backupStatus = hasCurrentBak ? `🟢 [版本匹配] v${version} 引导备份就绪` : `🔴 [无当前备份] 建议汉化以创建 v${version} 备份`;
+    if (otherBaks.length > 0) {
+        backupStatus += ` (检测到 ${otherBaks.length} 个跨版本孤块)`;
+    }
+    console.log(` 备份状态 : ${backupStatus}`);
+    
+    const engines = config.engines || {};
+    let aiStatus = '未开启 (仅离线字典)';
+    if (config.activeId !== 'none') {
+        aiStatus = `[${config.activeId}] 🟢 正在运行`;
+    }
+    const otherSaved = Object.keys(engines).filter(id => id !== config.activeId && engines[id].apiKey);
+    if (otherSaved.length > 0) {
+        aiStatus += ` / 其他已就绪: [${otherSaved.join(', ')}]`;
+    }
+    console.log(` AI 引擎  : ${aiStatus}`);
     
     const orphanedCount = cleanOrphanedBackups(paths);
     if (orphanedCount > 0) {
-        console.log(`\n 🧹 已为您静默清除了 ${orphanedCount} 个来自旧世代 Cursor 的遗留备份垃圾！`);
+        console.log(`\n 🧹 已为您静默清除了 ${orphanedCount} 个来自旧版 V1 的遗留备份垃圾！`);
     }
 
     console.log(`\n============== 操作菜单 ==============`);
-    console.log(` 1. 一键汉化 (自动处理防爆备份与重签)`);
-    console.log(` 2. 恢复官方原版 (自动清除幽灵缓存)`);
+    console.log(` 1. 一键汉化 (V2 动态注入模式)`);
+    console.log(` 2. 恢复官方原版`);
+    console.log(` 3. 配置 AI 翻译引擎 (信达雅增强)`);
     console.log(` Q. 退出`);
     console.log(`======================================\n`);
-    rl.question('请选择操作: ', (choice) => {
-        if (choice === '1') runLocalization(paths);
-        else if (choice === '2') restoreOfficial(paths);
-        else if (choice.toLowerCase() === 'q') rl.close();
-        else showMenu(paths);
-    });
+    
+    const choice = await askQuestion('请选择操作: ');
+    if (choice === '1') await runLocalization(paths);
+    else if (choice === '2') await restoreOfficial(paths);
+    else if (choice === '3') {
+        await configureAI();
+        await showMenu(paths);
+    }
+    else if (choice.toLowerCase() === 'q') rl.close();
+    else await showMenu(paths);
 }
 
-function runLocalization(paths) {
+/**
+ * 验证指定 AI 模型的在线连通性
+ * @param {string} activeId - 要测试的模型核心标识（如 deepseek, openai, deepl）
+ * @param {object} engines - 本地所有引擎配置的集合
+ * @returns {Promise<{ok: boolean, msg?: string}>}
+ */
+async function testModel(activeId, engines) {
+    const target = engines[activeId];
+    if (!target || !target.apiKey) return { ok: false, msg: '未配置 API Key' };
+
+    console.log(`  ⏳ 正在验证 ${activeId} 连通性...`);
+    try {
+        if (activeId !== 'deepl') {
+            // 所有非 DeepL 都走 OpenAI 协议
+            const res = await fetch(target.endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${target.apiKey}` },
+                body: JSON.stringify({ model: target.model, messages: [{ role: 'user', content: 'Say OK' }], max_tokens: 5 })
+            });
+            if (res.ok) return { ok: true };
+            const err = await res.json();
+            return { ok: false, msg: err.error?.message || res.statusText };
+        } else {
+            const params = new URLSearchParams();
+            params.append('auth_key', target.apiKey);
+            params.append('text', 'Hi');
+            params.append('target_lang', 'ZH');
+            const res = await fetch(target.endpoint, { method: 'POST', body: params });
+            if (res.ok) return { ok: true };
+            return { ok: false, msg: `HTTP ${res.status}` };
+        }
+    } catch (e) {
+        return { ok: false, msg: e.message };
+    }
+}
+
+async function configureAI() {
+    console.clear();
+    const config = loadConfig();
+    console.log('\n==== AI 翻译配置中心 ====');
+    console.log(` 持久化目录: ${CONFIG_DIR}\n`);
+    
+    const engineList = [
+        { id: 'openai', name: 'OpenAI (国际版)' },
+        { id: 'deepseek', name: 'DeepSeek (国产推荐)' },
+        { id: 'qwen', name: '通义千问 (Qwen)' },
+        { id: 'kimi', name: 'Kimi (Moonshot)' },
+        { id: 'deepl', name: 'DeepL 原生态' }
+    ];
+
+    engineList.forEach((en, i) => {
+        const stored = config.engines[en.id];
+        const status = (stored && stored.apiKey) ? ' (已配置)' : ' (未配置)';
+        const active = (config.activeId === en.id) ? ' [当前激活]' : '';
+        console.log(`${i + 1}. ${en.name}${status}${active}`);
+    });
+    console.log(`${engineList.length + 1}. 关闭 AI (回归离线模式)`);
+    console.log('B. 返回主菜单');
+
+    const choice = await askQuestion('\n请选择要切换或配置的模型: ');
+    if (choice.toLowerCase() === 'b') return;
+
+    const idx = parseInt(choice) - 1;
+    if (idx >= 0 && idx < engineList.length) {
+        const targetId = engineList[idx].id;
+        const targetName = engineList[idx].name;
+        
+        if (!config.engines[targetId]) {
+            config.engines[targetId] = { endpoint: '', apiKey: '', model: '' };
+        }
+        const targetConfig = config.engines[targetId];
+
+        if (targetConfig.apiKey) {
+            console.log(`\n检测到 ${targetName} 已有保存的配置。`);
+            console.log('1. 直接激活并测试');
+            console.log('2. 修改/重新配置');
+            console.log('3. 取消');
+            const sub = await askQuestion('请选择操作: ');
+            if (sub === '1') {
+                config.activeId = targetId;
+                const test = await testModel(targetId, config.engines);
+                if (test.ok) {
+                    console.log('✅ 验证完成！已切换当前模型。');
+                    saveConfig(config);
+                } else {
+                    console.log(`❌ 验证失败: ${test.msg}`);
+                    if ((await askQuestion('仍要切换此配置吗？(y/n): ')).toLowerCase() !== 'y') return;
+                    saveConfig(config);
+                }
+                return;
+            } else if (sub === '3') return;
+        }
+
+        // 配置录入逻辑
+        config.activeId = targetId;
+        if (targetId !== 'deepl') {
+            const defaults = {
+                openai: { e: 'https://api.openai.com/v1/chat/completions', m: 'gpt-4o-mini' },
+                deepseek: { e: 'https://api.deepseek.com/chat/completions', m: 'deepseek-chat' },
+                qwen: { e: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', m: 'qwen-turbo' },
+                kimi: { e: 'https://api.moonshot.cn/v1/chat/completions', m: 'moonshot-v1-8k' }
+            }[targetId];
+            
+            targetConfig.endpoint = await askQuestion(`端点 [${targetConfig.endpoint || defaults.e}]: `) || targetConfig.endpoint || defaults.e;
+            targetConfig.model = await askQuestion(`模型 [${targetConfig.model || defaults.m}]: `) || targetConfig.model || defaults.m;
+            targetConfig.apiKey = await askQuestion(`请输入 API Key: `) || targetConfig.apiKey;
+        } else {
+            targetConfig.endpoint = await askQuestion(`端点 [${targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate'}]: `) || targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate';
+            targetConfig.apiKey = await askQuestion(`请输入 Auth Key: `) || targetConfig.apiKey;
+        }
+
+        const test = await testModel(targetId, config.engines);
+        if (test.ok) {
+            console.log('✅ 测试连通成功！配置已保存。');
+            saveConfig(config);
+        } else {
+            console.log(`❌ 测试失败: ${test.msg}`);
+            if ((await askQuestion('仍要保存吗？(y/n): ')).toLowerCase() === 'y') saveConfig(config);
+        }
+    } else if (idx === engineList.length) {
+        config.activeId = 'none';
+        saveConfig(config);
+        console.log('✅ 已回归离线字典模式。');
+    }
+}
+
+/**
+ * 执行全自动汉化流程 (V2.1 PRO)
+ * 核心逻辑：创建物理隔离备份 -> 组装运行时挂载代码 -> 植入系统白名单 (Trusted Injection) -> 重构并闭合全局签名安全链
+ * @param {object} paths - 当前被探测出来的各项 Cursor 核心目录路径组合
+ */
+async function runLocalization(paths) {
+    const config = loadConfig();
+    
+    // AI 配置引导拦截
+    if (config.activeId === 'none') {
+        console.log('\n[💡 建议] 您当前未配置或未激活 AI 翻译引擎。');
+        console.log('离线字典能处理大部分 UI，但某些动态长句（如 AI 问答框）需 AI 引擎才能实现“信达雅”。');
+        const goConfig = await askQuestion('是否先去配置一个 AI 模型？(输入 y 前往配置 / 直接回车跳过): ');
+        if (goConfig.toLowerCase() === 'y') {
+            await configureAI();
+            return showMenu(paths);
+        }
+    }
+
     const product = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
     const currentVersion = product.version;
 
-    console.log('\n--- 开始全自动汉化流程 ---');
+    console.log('\n--- 开始全自动汉化流程 (V2 模式) ---');
     console.log(`当前 Cursor 版本: ${currentVersion}`);
 
     if (currentVersion !== BASE_CURSOR_VERSION) {
-        console.log(`\x1b[33m⚠️ 警告: 当前版本 (${currentVersion}) 与补丁适配版本 (${BASE_CURSOR_VERSION}) 不一致。\x1b[0m`);
+        console.log(`\x1b[33m⚠️ 警告: 当前版本 (${currentVersion}) 与预期版本 (${BASE_CURSOR_VERSION}) 不一致，但 V2 具有极强的前后兼容性。\x1b[0m`);
+    }
+
+    console.log('\n[1/4] 备份原始环境 (物理版离线隔离)...');
+    const versionedBakJs = path.join(paths.workbenchDir, `workbench.js.${currentVersion}.bak`);
+    const versionedBakHtml = path.join(paths.workbenchDir, `workbench.html.${currentVersion}.bak`);
+    
+    const jsContent = fs.readFileSync(paths.workbenchJs, 'utf8');
+    const isAlreadyLocalized = jsContent.includes('// === 安装期编译内联组装 ===');
+    
+    if (!fs.existsSync(versionedBakJs)) {
+        if (!isAlreadyLocalized) {
+            fs.copyFileSync(paths.workbenchJs, versionedBakJs);
+            console.log(`  ✓ 已锁定 v${currentVersion} 核心引导程序的原生备份`);
+        }
     }
     
-    // 1. 备份检测与目标文件列表
-    const targets = [
-        { path: paths.mainJs, backup: paths.backupMainJs, type: 'js' },
-    ];
-    /*
-     * 🛡️ 架构级安全屏蔽墙 (Anti-Corruption Shield)
-     * 在早期的版本中，脚本会扫描并替换以下两大类资源，目前出于极端稳定性考量已被深度屏蔽，原因如下：
-     * 
-     * 1. 屏蔽 `nls.messages.json`（VS Code 核心翻译语言包）：
-     *    - 原因：这是一个结构严谨的巨型 JSON 字典。如果使用全局正则暴力替换，极容易将 JSON 的 "Key（键）" 误伤替换成中文（譬如将 `{"File": "File"}` 破坏为 `{"文件": "文件"}`）。
-     *    - 后果：导致 VS Code 底层原生的多语言装载器因为找不到正确的英文代号映射而报错，从而彻底破坏顶部原生菜单栏、命令面板等 UI 渲染。
-     * 
-     * 2. 屏蔽 `extensions` 目录下所有的 `*.nls.json`（各内置运行扩展包）：
-     *    - 原因：第三方扩展（如 Git 组件、TypeScript 语言高亮服务等）的启动逻辑非常脆弱，如果在不知情的情况下破坏了其 NLS Key 的声明匹配。
-     *    - 后果：会导致依赖这些 Key 的扩展在后台激活阶段发生内部抛错。引发类似于“代码颜色高亮消失”、“版本控制模块无法加载”等幽灵级 Bug，极难排查。
-     * 
-     * 💡 结论：将汉化的火力只精确聚焦在 `workbench.desktop.main.js`（这里是 Cursor 自研的 AI 对话台、模型设置等定制界面的真正专属业务区），是保证全系统稳定不崩的最优解法。
-     */
-    /*
-    // 原有的危险扫描代码区（已被隔离）：
-    // Add nls.messages.json to targets if it exists
-    if (fs.existsSync(paths.nlsJson)) {
-        targets.push({ path: paths.nlsJson, backup: paths.backupNlsJson, type: 'json' });
+    // 始终尝试备份 HTML (如果目前不是已汉化状态)
+    const htmlContent = fs.readFileSync(paths.workbenchHtml, 'utf8');
+    if (!fs.existsSync(versionedBakHtml) && !htmlContent.includes('cursor-i18n.js')) {
+        fs.copyFileSync(paths.workbenchHtml, versionedBakHtml);
+        console.log(`  ✓ 已同步 v${currentVersion} HTML 骨架备份`);
     }
 
-    // 扫描 extensions 目录下的 nls 文件
-    const extDir = path.join(paths.root, 'extensions');
-    if (fs.existsSync(extDir)) {
-        const scanNls = (dir) => {
-            const files = fs.readdirSync(dir);
-            for (const file of files) {
-                const fullPath = path.join(dir, file);
-                try {
-                    if (fs.statSync(fullPath).isDirectory()) {
-                        scanNls(fullPath);
-                    } else if (file.endsWith('.nls.json')) {
-                        const backup = fullPath + `.${paths.version}.bak`;
-                        targets.push({ path: fullPath, backup, type: 'json' });
-                    }
-                } catch(e) {}
-            }
-        };
-        scanNls(extDir);
-    }
-    */
-
-    targets.forEach(target => {
-        if (fs.existsSync(target.path) && !fs.existsSync(target.backup)) {
-            fs.copyFileSync(target.path, target.backup);
+    // 清理跨版本文件
+    const allFiles = fs.readdirSync(paths.workbenchDir);
+    allFiles.forEach(f => {
+        if (f.endsWith('.bak') && !f.includes(currentVersion)) {
+            fs.unlinkSync(path.join(paths.workbenchDir, f));
+            console.log(`  ✓ 已清理跨代幽灵备份: ${f}`);
         }
     });
 
-    let totalCount = 0;
-    const finalMissed = new Set([...fragments.map(f => f.en)]);
+    console.log('\n[2/4] 编译运行时代码并挂载至引导链 (Trusted Injection)...');
+    const runtimePath = path.join(__dirname, 'cursor-i18n-runtime.js');
+    if (!fs.existsSync(runtimePath)) {
+        console.error('❌ 找不到运行时引擎 (cursor-i18n-runtime.js)');
+        rl.once('line', () => showMenu(paths));
+        return;
+    }
 
-    console.log(`\n扫描到 ${targets.length} 个汉化目标文件。`);
-
-    targets.forEach(target => {
-        if (!fs.existsSync(target.path)) return;
-        
-        let content = fs.readFileSync(target.path, 'utf8');
-        let fileCount = 0;
-        let changed = false;
-
-        // === 四级精准注入引擎 ===
-        const { safeMegaRegex, safeMap, bareMegaRegex, bareMap, riskyRegexes } = engines;
-
-        // L2: 安全长句（被引号包裹，按长度降序优先命中）
-        if (safeMegaRegex) {
-            safeMegaRegex.lastIndex = 0;
-            content = content.replace(safeMegaRegex, (match, quote, en) => {
-                if (safeMap[en]) { fileCount++; totalCount++; changed = true; return `${quote}${safeMap[en]}${quote}`; }
-                return match;
-            });
-        }
-
-        // L3: 裸长文本（≥20字符，无引号也可安全替换）
-        if (bareMegaRegex) {
-            bareMegaRegex.lastIndex = 0;
-            content = content.replace(bareMegaRegex, (match, en) => {
-                if (bareMap[en]) { fileCount++; totalCount++; changed = true; return bareMap[en]; }
-                return match;
-            });
-        }
-
-        // L4: 危险短词（仅在 children/title/label 等 UI 属性上下文中精准替换）
-        for (const { zh, propRegex, jsxRegex, htmlRegex } of riskyRegexes) {
-            const before = content.length;
-            propRegex.lastIndex = 0; jsxRegex.lastIndex = 0; htmlRegex.lastIndex = 0;
-            content = content.replace(propRegex, `$1: $2${zh}$2`);
-            content = content.replace(jsxRegex,  `$1, $2${zh}$2`);
-            content = content.replace(htmlRegex, `>${zh}<`);
-            if (content.length !== before) { fileCount++; totalCount++; changed = true; }
-        }
-
-        // L5: fragments 碎片化补全（长文本上下文片段）
-        for (const item of fragments) {
-            if (content.includes(item.en)) {
-                content = content.split(item.en).join(item.cn);
-                fileCount++; totalCount++; changed = true;
-                finalMissed.delete(item.en);
-            }
-        }
-
-        if (changed) {
-            fs.writeFileSync(target.path, content, 'utf8');
-            console.log(`  ✓ [${target.type.toUpperCase()}] ${path.relative(paths.root, target.path).substring(0, 60)} (${fileCount} 处)`);
-        }
-    });
-
-
-    // 5. 自动修复校验 (Fix Checksum)
-    console.log('\n正在自动修复文件校验值...');
-    
-    const fixChecksum = (filePath, key) => {
-        if (!fs.existsSync(filePath)) return;
-        const buffer = fs.readFileSync(filePath);
-        const hash = crypto.createHash('sha256').update(buffer).digest('base64').replace(/=+$/, '');
-        product.checksums[key] = hash;
-        console.log(`  ✓ 校验值已更新: ${key}`);
+    const activeEngine = config.engines[config.activeId];
+    const runtimeConfig = {
+        apiType: (config.activeId === 'none') ? 'none' : (config.activeId === 'deepl' ? 'deepl' : 'openai'),
+        openai: (config.activeId !== 'none' && config.activeId !== 'deepl') ? activeEngine : null,
+        deepl: (config.activeId === 'deepl') ? activeEngine : null
     };
 
-    fixChecksum(paths.mainJs, 'vs/workbench/workbench.desktop.main.js');
-    if (fs.existsSync(paths.nlsJson)) {
-        const nlsKey = Object.keys(product.checksums).find(k => k.endsWith('nls.messages.json')) || 'nls.messages.json';
-        fixChecksum(paths.nlsJson, nlsKey);
+    let runtimeCode = fs.readFileSync(runtimePath, 'utf8');
+    const injectCode = `\n\n// === 安装期编译内联组装 ===\n(function(){\nwindow.__CURSOR_TERMS__ = Object.assign(window.__CURSOR_TERMS__ || {}, ${JSON.stringify(I18N_DICT)});\nwindow.__I18N_CONFIG__ = ${JSON.stringify(runtimeConfig)};\n\n${runtimeCode}\n})();\n`;
+    
+    // 如果已经汉化，我们需要先用备份还原基础 JS 再注入，或者直接判定已就绪
+    if (isAlreadyLocalized) {
+        fs.copyFileSync(versionedBakJs, paths.workbenchJs);
+    }
+    fs.appendFileSync(paths.workbenchJs, injectCode, 'utf8');
+    console.log('  ✓ 核心引导挂载成功 (V2.1 架构)');
+
+    console.log('\n[3/4] 净化 HTML 环境与安全映射...');
+    let htmlContentSync = fs.readFileSync(paths.workbenchHtml, 'utf8');
+    
+    // 1. 清理旧版注入 (V2.0 -> V2.1 迁移自愈)
+    if (htmlContentSync.includes('cursor-i18n.js')) {
+        htmlContentSync = htmlContentSync.replace(/[\s\r\n]*<!-- cursor-i18n:[\s\S]*?--\>[\s\r\n]*<script src="\.\/cursor-i18n\.js"><\/script>[\s\r\n]*/g, '');
+        fs.writeFileSync(paths.workbenchHtml, htmlContentSync, 'utf8');
+        console.log('  ✓ 已清理 V2.0 旧版 HTML 注入挂钩');
+    } else {
+        console.log('  ✓ HTML 环境纯净');
+    }
+    
+    // 清理过时的外部文件
+    if (fs.existsSync(paths.cursorI18nJs)) {
+        fs.unlinkSync(paths.cursorI18nJs);
     }
 
+    console.log('\n[4/4] 覆盖核心哈希校验与数字签名...');
+    // 计算 JS 和 HTML 的最新哈希
+    const jsHash = crypto.createHash('sha256').update(fs.readFileSync(paths.workbenchJs)).digest('base64').replace(/=+$/, '');
+    const htmlHash = crypto.createHash('sha256').update(fs.readFileSync(paths.workbenchHtml)).digest('base64').replace(/=+$/, '');
+    
+    product.checksums['vs/code/electron-sandbox/workbench/workbench.js'] = jsHash;
+    product.checksums['vs/code/electron-sandbox/workbench/workbench.html'] = htmlHash;
+    
     fs.writeFileSync(paths.productJson, JSON.stringify(product, null, '\t'), 'utf8');
+    console.log('  ✓ Checksum 双哈希同步完成');
 
-    // 6. macOS 代码签名修复
     if (process.platform === 'darwin') {
-        console.log('\n正在修复 macOS 应用程序签名 (防黑屏致命崩溃)...');
+        const { execSync } = require('child_process');
+        const appBundle = paths.root.replace('/Contents/Resources/app', '');
         try {
+            execSync(`xattr -cr "${appBundle}"`);
+            execSync(`codesign --force --deep --sign - "${appBundle}"`);
+            console.log('  ✓ macOS 签名防御系统已重校');
+        } catch (e) {
+            console.log('  ⚠️ macOS 签名自动重校失败，请在终端手动执行授权命令。');
+        }
+    }
+
+    console.log('\n✨ V2 汉化顺利完成！请彻底重启 Cursor 以拉起底层的翻译网络。');
+    await askQuestion('\n按 Enter 键返回菜单...');
+    await showMenu(paths);
+}
+
+/**
+ * 执行官方原版还原流程
+ * 核心逻辑：读取历史版本备份 -> 物理替换遭受注入的受灾文件 -> 回滚 Checksum 与证书 -> 恢复原厂运行状态
+ * @param {object} paths - 当前被探测出来的各项 Cursor 核心目录路径组合
+ */
+async function restoreOfficial(paths) {
+    console.log('\n--- 开始恢复官方还原流程 ---');
+    const product = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
+    const currentVersion = product.version;
+    const versionedBakJs = path.join(paths.workbenchDir, `workbench.js.${currentVersion}.bak`);
+    const versionedBakHtml = path.join(paths.workbenchDir, `workbench.html.${currentVersion}.bak`);
+    
+    // 恢复 JS 引导脚本
+    if (fs.existsSync(versionedBakJs)) {
+        fs.copyFileSync(versionedBakJs, paths.workbenchJs);
+        console.log(`  ✓ 已归位 v${currentVersion} 原生引导脚本`);
+    }
+
+    // 恢复 HTML 结构 (清除潜在的 V2.0 注入)
+    if (fs.existsSync(versionedBakHtml)) {
+        fs.copyFileSync(versionedBakHtml, paths.workbenchHtml);
+        console.log(`  ✓ 已归位 v${currentVersion} HTML 基础骨架`);
+    } else {
+        let html = fs.readFileSync(paths.workbenchHtml, 'utf8');
+        if (html.includes('cursor-i18n.js')) {
+            html = html.replace(/[\s\r\n]*<!-- cursor-i18n:[\s\S]*?--\>[\s\r\n]*<script src="\.\/cursor-i18n\.js"><\/script>[\s\r\n]*/g, '');
+            fs.writeFileSync(paths.workbenchHtml, html, 'utf8');
+            console.log('  ✓ 已手动擦除 HTML 中的脏代码注入');
+        }
+    }
+
+    // 清理所有版本备份
+    const allFiles = fs.readdirSync(paths.workbenchDir);
+    allFiles.forEach(f => {
+        if (f.endsWith('.bak')) {
+            fs.unlinkSync(path.join(paths.workbenchDir, f));
+            console.log(`  ✓ 已清理备份文件: ${f}`);
+        }
+    });
+
+    if (fs.existsSync(paths.cursorI18nJs)) {
+        fs.unlinkSync(paths.cursorI18nJs);
+    }
+
+    console.log('\n[!] 正在锁定官方原版哈希...');
+    const jsHash = crypto.createHash('sha256').update(fs.readFileSync(paths.workbenchJs)).digest('base64').replace(/=+$/, '');
+    const htmlHash = crypto.createHash('sha256').update(fs.readFileSync(paths.workbenchHtml)).digest('base64').replace(/=+$/, '');
+    
+    product.checksums['vs/code/electron-sandbox/workbench/workbench.js'] = jsHash;
+    product.checksums['vs/code/electron-sandbox/workbench/workbench.html'] = htmlHash;
+    
+    fs.writeFileSync(paths.productJson, JSON.stringify(product, null, '\t'), 'utf8');
+    console.log('  ✓ 官方原生态 Checksum 已闭合');
+
+    // 顺手恢复可能损坏的老版备胎
+    if (fs.existsSync(paths.backupMainJs)) {
+        fs.copyFileSync(paths.backupMainJs, paths.mainJs);
+        fs.unlinkSync(paths.backupMainJs);
+    }
+
+    if (fs.existsSync(paths.cursorI18nJs)) {
+        fs.unlinkSync(paths.cursorI18nJs);
+        console.log('  ✓ 已移除汉化运行时核心');
+    }
+
+    if (fs.existsSync(paths.workbenchHtml)) {
+        const buffer = fs.readFileSync(paths.workbenchHtml);
+        const hash = crypto.createHash('sha256').update(buffer).digest('base64').replace(/=+$/, '');
+        product.checksums['vs/code/electron-sandbox/workbench/workbench.html'] = hash;
+        fs.writeFileSync(paths.productJson, JSON.stringify(product, null, '\t'), 'utf8');
+        console.log('  ✓ Checksum 哈希验证码还原本源');
+    }
+
+    // 顺手恢复可能损坏的老版备胎
+    if (fs.existsSync(paths.backupMainJs)) {
+        fs.copyFileSync(paths.backupMainJs, paths.mainJs);
+        fs.unlinkSync(paths.backupMainJs);
+    }
+    if (fs.existsSync(paths.backupNlsJson)) {
+        fs.copyFileSync(paths.backupNlsJson, paths.nlsJson);
+        fs.unlinkSync(paths.backupNlsJson);
+    }
+
+    if (process.platform === 'darwin') {
+        try {
+            console.log('  ⏳ 正在归位 macOS 签名...');
             const { execSync } = require('child_process');
             const appBundle = paths.root.replace('/Contents/Resources/app', '');
             execSync(`xattr -cr "${appBundle}"`);
             execSync(`codesign --force --deep --sign - "${appBundle}"`);
-            console.log('  ✓ macOS 签名修复成功');
-        } catch (e) {
-            console.log('  ❌ macOS 签名修复失败。如果一会儿启动白屏，请在终端手动执行完毕后再开 Cursor:');
-            console.log(`  sudo xattr -cr "${paths.root.replace('/Contents/Resources/app', '')}"`);
-            console.log(`  sudo codesign --force --deep --sign - "${paths.root.replace('/Contents/Resources/app', '')}"`);
-        }
+            console.log('  ✓ 重新闭合并认证 macOS 原生态签名');
+        } catch (e) {}
     }
 
-    // 7. 清除 V8 引擎缓存 (防止新老文件偏移量不匹配引发白屏)
-    const os = require('os');
-    let cacheDirs = [];
-    if (process.platform === 'darwin') {
-        cacheDirs = [
-            path.join(os.homedir(), 'Library/Application Support/Cursor/Cache'),
-            path.join(os.homedir(), 'Library/Application Support/Cursor/CachedData'),
-            path.join(os.homedir(), 'Library/Application Support/Cursor/Code Cache')
-        ];
-    } else if (process.platform === 'win32') {
-        const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-        cacheDirs = [
-            path.join(appData, 'Cursor', 'Cache'),
-            path.join(appData, 'Cursor', 'CachedData'),
-            path.join(appData, 'Cursor', 'Code Cache')
-        ];
-    } else {
-        const configDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-        cacheDirs = [
-            path.join(configDir, 'Cursor', 'Cache'),
-            path.join(configDir, 'Cursor', 'CachedData'),
-            path.join(configDir, 'Cursor', 'Code Cache')
-        ];
-    }
-    process.stdout.write('\n正在静默清除 Cursor 的 V8 底层缓存防黑屏... ');
-    cacheDirs.forEach(dir => {
-        if (fs.existsSync(dir)) {
-            try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
-        }
-    });
-    console.log('完成!');
-    
-    console.log('\n✅ 汉化流程全部完成！');
-    if (finalMissed.size > 0) {
-        console.log(`\x1b[33mℹ️  全量资源扫描后仍有 ${finalMissed.size} 条未匹配：\x1b[0m`);
-        const missedList = Array.from(finalMissed).sort();
-        missedList.forEach(term => console.log(`  - ${term}`));
-        
-        // 自动保存到本地日志文件
-        fs.writeFileSync('missed_terms.log', missedList.join('\n'), 'utf8');
-        console.log(`\n\x1b[32m📄 详细列表已保存至: ${path.join(process.cwd(), 'missed_terms.log')}\x1b[0m`);
-    }
-    console.log('\n✨ 汉化大功告成！请彻底重启 Cursor 以查看效果。');
-    console.log('\n按 Enter 键返回菜单...');
-    rl.once('line', () => {
-        showMenu(paths);
-    });
-}
-
-function restoreOfficial(paths) {
-    console.log('\n--- 开始恢复官方原版流程 ---');
-    const product = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
-    let restoredCount = 0;
-
-    const restoreFile = (file, backup) => {
-        if (fs.existsSync(backup)) {
-            fs.copyFileSync(backup, file);
-            fs.unlinkSync(backup); // 彻底删除冗余备份，防止污染下一次官方更新
-            restoredCount++;
-            return true;
-        }
-        return false;
-    };
-
-    // 1. 还原核心文件
-    if (restoreFile(paths.mainJs, paths.backupMainJs)) {
-        console.log('  ✓ 已恢复: workbench.desktop.main.js');
-        const buffer = fs.readFileSync(paths.mainJs);
-        const hash = crypto.createHash('sha256').update(buffer).digest('base64').replace(/=+$/, '');
-        product.checksums['vs/workbench/workbench.desktop.main.js'] = hash;
-    }
-
-    if (restoreFile(paths.nlsJson, paths.backupNlsJson)) {
-        console.log('  ✓ 已恢复: nls.messages.json');
-        const nlsKey = Object.keys(product.checksums).find(k => k.endsWith('nls.messages.json')) || 'nls.messages.json';
-        const buffer = fs.readFileSync(paths.nlsJson);
-        const hash = crypto.createHash('sha256').update(buffer).digest('base64').replace(/=+$/, '');
-        product.checksums[nlsKey] = hash;
-    }
-
-    // 2. 扫描并还原扩展目录
-    const extDir = path.join(paths.root, 'extensions');
-    if (fs.existsSync(extDir)) {
-        const scanAndRestore = (dir) => {
-            const files = fs.readdirSync(dir);
-            for (const file of files) {
-                const fullPath = path.join(dir, file);
-                try {
-                    if (fs.statSync(fullPath).isDirectory()) {
-                        scanAndRestore(fullPath);
-                    } else if (file.endsWith('.nls.json.bak')) {
-                        const original = fullPath.replace('.bak', '');
-                        fs.copyFileSync(fullPath, original);
-                        fs.unlinkSync(fullPath); // 新增：删除残留在扩展目录的幽灵备份文件
-                        restoredCount++;
-                        console.log(`  ✓ 已恢复扩展资源: ${path.relative(extDir, original)}`);
-                    }
-                } catch(e) {}
-            }
-        };
-        scanAndRestore(extDir);
-    }
-
-    if (restoredCount === 0) {
-        console.log('❌ 找不到任何备份文件，无法恢复。');
-    } else {
-        fs.writeFileSync(paths.productJson, JSON.stringify(product, null, '\t'), 'utf8');
-        console.log(`\n✅ 成功恢复 ${restoredCount} 个文件，校验值已回正。`);
-
-        process.stdout.write('⏳ 正在执行底层安全重签与引擎缓存清理，请耐心等待 (约需 3-5 秒)... ');
-
-        if (process.platform === 'darwin') {
-            try {
-                const { execSync } = require('child_process');
-                const appBundle = paths.root.replace('/Contents/Resources/app', '');
-                execSync(`xattr -cr "${appBundle}"`);
-                execSync(`codesign --force --deep --sign - "${appBundle}"`);
-            } catch (e) {}
-        }
-        
-        const os = require('os');
-        let cacheDirs = [];
-        if (process.platform === 'darwin') {
-            cacheDirs = [
-                path.join(os.homedir(), 'Library/Application Support/Cursor/Cache'),
-                path.join(os.homedir(), 'Library/Application Support/Cursor/CachedData'),
-                path.join(os.homedir(), 'Library/Application Support/Cursor/Code Cache')
-            ];
-        } else if (process.platform === 'win32') {
-            const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-            cacheDirs = [
-                path.join(appData, 'Cursor', 'Cache'),
-                path.join(appData, 'Cursor', 'CachedData'),
-                path.join(appData, 'Cursor', 'Code Cache')
-            ];
-        } else {
-            const configDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
-            cacheDirs = [
-                path.join(configDir, 'Cursor', 'Cache'),
-                path.join(configDir, 'Cursor', 'CachedData'),
-                path.join(configDir, 'Cursor', 'Code Cache')
-            ];
-        }
-        cacheDirs.forEach(dir => {
-            if (fs.existsSync(dir)) {
-                try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
-            }
-        });
-        
-        console.log('完成！🎉');
-    }
-    
-    console.log('\n按 Enter 键返回菜单...');
-    rl.once('line', () => {
-        showMenu(paths);
-    });
+    console.log('\n✅ 恢复原版成功！一切恍若如初~');
+    await askQuestion('\n按 Enter 键返回菜单...');
+    await showMenu(paths);
 }
 
 async function start() {
     try {
         await main();
     } catch (err) {
-        console.error('\n❌ 发生严重错误:');
-        console.error(err);
-        console.log('\n程序即将退出，请截图保留错误信息以便排查。');
-        console.log('按任意键退出...');
+        console.error('\n❌ 发生严重错误:', err);
         process.stdin.setRawMode(true);
         process.stdin.resume();
-        process.stdin.once('data', () => {
-            process.exit(1);
-        });
+        process.stdin.once('data', () => process.exit(1));
     }
 }
 

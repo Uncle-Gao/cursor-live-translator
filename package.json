@@ -1,7 +1,7 @@
 {
   "name": "cursor-settings-zh",
-  "version": "1.2.0",
-  "description": "Cursor Settings 界面深度补丁汉化工具，一键汉化、碎步补全、校验修复、平台自适应及一键还原。",
+  "version": "2.1.0",
+  "description": "Cursor 汉化 Pro: AI 驱动的跨平台本地化引擎",
   "main": "cursor_zh_pro.js",
   "bin": "cursor_zh_pro.js",
   "keywords": [
@@ -15,12 +15,13 @@
   ],
   "scripts": {
     "start": "node cursor_zh_pro.js",
-    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist"
+    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --out-path dist --no-bytecode --public"
   },
   "pkg": {
     "scripts": [],
     "assets": [
-      "i18n/*.json"
+      "i18n/*.json",
+      "cursor-i18n-runtime.js"
     ],
     "targets": [
       "node18-win-x64",

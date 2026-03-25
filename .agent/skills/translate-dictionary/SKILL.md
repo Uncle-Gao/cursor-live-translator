@@ -1,46 +1,28 @@
 ---
 name: translate-dictionary
-description: 专门用于维护和扩展 Cursor Settings 汉化字典的技能，包含分类原则和动态扩展策略。
+description: 专门用于维护和扩展 Cursor Settings 汉化字典的技能，包含 V2 (DOM拦截) 架构下的分类原则和动态扩展策略。
 ---
 
 # Cursor 汉化 Pro 维护技能 (translate-dictionary)
 
 ## 目的
-本技能旨在指导维护 `cursor_zh_pro.js` 的核心逻辑及 `i18n/*.json` 资源文件，确保汉化覆盖 100% 的 UI 表面积（包含主程序逻辑与 NLS 语言包）。
+本技能旨在指导维护 `cursor_zh_pro.js` 的核心汇编逻辑及 `i18n/*.json` 资源文件，重点配合 V2 架构的 DOM 拦截外挂脚本（`cursor-i18n-runtime.js`），指导 AI 确保安全地拓宽汉化覆盖面。
 
-## 字典资源划分
-Pro 版本通过两个核心文件分工处理汉化，严禁混用：
+## 字典规则演进 (V2 架构革新)
+在 V2 纯运行时 HTML 的外挂注入体系中，我们**彻底抛弃了在几十兆源码里做危险正则替换的做法**。所有翻译的映射都独立且安全地发生于浏览器渲染引擎中的前台文本节点 (`node.textContent`) 与悬浮提示 (`title`) 的变化瞬间！
 
 1. **[dictionary.json](file:///Users/gaoxuyang/Developer/cursor-settings-zh/i18n/dictionary.json)**：
-   - **适用场景**：绝大多数短词、固定按钮、配置项、通用词汇。
-   - **匹配原理**：采用严格边界正则（`"` 或 `>` 包裹），并已在底层脚本加入 **负向断言防呆机制** `(?=\\s*(?![:=]))`，自动跳过作为对象属性(Key)和变量赋值的代码。
-   - **组织形式**：按 UI 逻辑层级嵌套，脚本会自动扁平化处理。**所有通用短词（如 Context、Chat 等）必须且只能存放在此处**。
+   - **定位**：V2 工作流的主力库。适用各类单短词、高频系统级名词（如 `"Settings"`）、组合词以及各种悬浮气泡文本。
+   - **匹配原理**：运行时被编译为内存哈希表，依靠原生 DOM 抓取其内含 `textContent.trim()` 和字典键极速进行 **严格字符串等值命中**。
+   - **🚨 封印解除 (安全重定义)**：在 V2 的运行时维度，现在**完全允许把极短或普适的英文短词**（例如 `"All"`, `"Default"`, `"True"`, `"False"`）**录入基础字典**！因为运行时的 `MutationObserver` 只会针对网页前端暴露出来的 UI 文本节点做判断，绝对不会干扰隐匿在后面运作的 JavaScript 内部框架变量和对象键，从物理隔离上 100% 消灭了引发渲染进程崩溃黑屏的可能！
 
-2. **[fragments.json](file:///Users/gaoxuyang/Developer/cursor-settings-zh/i18n/fragments.json)**：
-   - **适用场景**：带有特定 HTML/UI 特征的超长句子、多词组合。
-   - **匹配原理**：采用暴力的 `split/join` 全局纯文本替换，无任何边界限制。
-   - **⚠️ 灾难级红线 (Anti-Black-Screen)**：**绝对不允许将没有任何上下文符号包裹的、纯粹的英文通用短词（如 `All`, `Open`, `Default`, `User`）直接放入此文件！** 这会无差异替换掉 JS 底层源码中的变量名、对象、导出函数等，引发瞬间的 Syntax Error 导致导致渲染进程（界面） 100% 暴毙黑屏！
-   - **正确用法示例**：如果一定要用它匹配短词，必须包含上下文字符，例如：`>Default<`、`"Cursor Tab"` 或 `class="btn">Open<`。
+2. **[fragments.json](file:///Users/gaoxuyang/Developer/cursor-settings-zh/i18n/fragments.json)** (兼容式超长注释/片段包)：
+   - **定位**：遗留下来的巨型设置说明释义本。
+   - **加载原理**：目前的安装程序会在执行时自动读取本文件，过滤掉无用的上下文特殊边界符，将其全量合并打平灌入到主字典环境。
+   - **M4 计划**：在未来，此文件（或拆分为 `patterns.json`）将进一步进化为存放具备正则表达式特性的匹配模板（如 `"(.*) files analyzed"`），用于处理运行时含可变数字动态更新的复杂字符串。
 
-## 目标资源文件 (Targets)
-维护时必须确保覆盖以下物理位置：
-1. **主逻辑**：`out/vs/workbench/workbench.desktop.main.js`
-2. **全局 NLS**：`out/nls.messages.json`（绝大多数按钮和弹窗词条的真实载体）
-3. **扩展 NLS**：`extensions/**/package.nls.json`（插件相关的功能词条）
-
-## 技术规范与风险控制
-- **NLS JSON 原则**：在处理 JSON 资源时，替换逻辑必须仅限“值”部分，严禁触碰 JSON 的“键”或“结构控制符”。
-- **校验值闭环 (Checksums)**：修改目标文件后自动计算 SHA256 (Base64) 写入 `product.json`，防止软件告警。
-- **白屏/黑屏防御机制 (Core Resiliency)**：
-    - **JS 变量防篡改**：严格依据 `dictionary.json` (防呆正则) 和 `fragments.json` (长文本/特征符) 分治。
-    - **V8 代码缓存清洗**：汉化脚本底层已包含自动删除 `CachedData` 与 `Code Cache` 的逻辑，防止新老代码体积偏移量不一致导致引擎底层崩溃。
-    - **macOS Gatekeeper 防封杀**：汉化脚本底层已包含针对 `darwin` 环境的自动 `codesign` 重新签名及 `xattr` 属性剥离，防止改动文件后失去 JIT 引擎执行权限。
-    - **总结**：作为翻译录入者，你唯一需要防范的引发黑屏的原因，就是**向 json 词库中投入了错误的“毒词”**（例如将纯泛用短词违规塞入了 `fragments.json`）。
-
-## 维护流程
-1. **定位残留英文**：运行 `cursor_zh_pro.js` 检查 `finalMissed` 统计结果，或直接在 `out` 目录下使用全量文本检索确认载体。
-2. **分配至资源文件**：
-   - 简单的键值对放入 `dictionary.json` 对应的 UI 分组下。
-   - 复杂长文本放入 `fragments.json`。
-3. **执行全量汉化**：运行汉化脚本，查看“扫描到 X 个目标文件”的输出结果。
-4. **校验验证**：通过 product.json 的变化确认校验值修复成功。
+## 维护作业流淌 (V2)
+1. **拾取英文节点**：直观地阅读未汉化的设置页面 UI（或使用外部 DOM 分析剥离工具）。
+2. **扩充语料库**：以纯文本键值对的形式补充进 `i18n/dictionary.json` 适当的分层内。
+3. **注入投递引擎**：在项目内打开终端，调用 `sudo node cursor_zh_pro.js` 并选择注入选项 `1`。工具会安全地重打包包含了全新指纹与词条内存的 `cursor-i18n.js`。
+4. **重载视界**：回到 Cursor 主界面按下 `Cmd+R` (Reload Window)。DOM 树被完全撕毁重构的瞬间，新的术语映射即可就绪显现。

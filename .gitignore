@@ -28,3 +28,4 @@ hacker_icon.ico
 .idea/
 *.swp
 *.swo
+dist/
