@@ -1,12 +1,15 @@
 /**
- * cursor-i18n-runtime.js (V3.5 - Polyglot Edition)
- * 支持 OpenAI 与 DeepL 双协议的高品质翻译引擎。
+ * cursor-live-translator-runtime.js (V3.5 - Live Edition)
+ * 支持 OpenAI 与 DeepL 双协议的高品质实时翻译引擎。
  */
 
 // === 1. 外部注入配置与初始化 ===
 const I18N_TERMS = window.__CURSOR_TERMS__ || {};
-const CONFIG = window.__I18N_CONFIG__ || { apiType: 'none' };
+const CONFIG = window.__I18N_CONFIG__ || { apiType: 'none', skip: {} };
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'CODE', 'PRE', 'KBD', 'SAMP']);
+const SKIP_TITLES = CONFIG.skip?.titles || [];
+const SKIP_URLS = CONFIG.skip?.urls || [];
+const SKIP_SELECTORS = CONFIG.skip?.selectors || [];
 const CACHE_KEY = 'cursor_i18n_v2_pro_cache';
 
 // === 2. 缓存体系 ===
@@ -173,7 +176,35 @@ function getTranslation(text) {
   return null;
 }
 
+/**
+ * 屏蔽检查：判断节点是否处于被屏蔽的区域中
+ */
+function isExcluded(node) {
+    if (!node) return false;
+    // 检查元素节点及其祖先
+    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!el) return false;
+
+    // 1. 检查选择器 (带安全保护)
+    for (const selector of SKIP_SELECTORS) {
+        if (!selector || typeof selector !== 'string') continue;
+        try {
+            if (el.closest(selector)) {
+                // 仅对元素节点在控制台输出提示，避免日志淹没
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    console.warn(`[Cursor-Live-Translator] 屏蔽区域匹配成功: ${selector}`, node);
+                }
+                return true;
+            }
+        } catch (e) {
+            console.error(`[Cursor-Live-Translator] 非法的 CSS 选择器: ${selector}`);
+        }
+    }
+    return false;
+}
+
 function processNode(node) {
+  if (isExcluded(node)) return;
   const raw = node.textContent.trim();
   const trans = getTranslation(raw);
   if (trans && node.textContent !== node.textContent.replace(raw, trans)) {
@@ -182,6 +213,7 @@ function processNode(node) {
 }
 
 function processTitle(el) {
+  if (isExcluded(el)) return;
   const title = el.getAttribute('title');
   if (!title) return;
   const target = getTranslation(title.trim());
@@ -241,10 +273,20 @@ const observer = new MutationObserver((mutations) => {
 });
 
 function init() {
+  // === 全局环境屏蔽检查 ===
+  if (SKIP_URLS.some(u => location.href.includes(u))) {
+      console.log('[Cursor-Live-Translator] 当前 URL 已在屏蔽名单，停止运行。');
+      return;
+  }
+  if (SKIP_TITLES.some(t => document.title.includes(t))) {
+      console.log('[Cursor-Live-Translator] 当前 窗口标题 已在屏蔽名单，停止运行。');
+      return;
+  }
+
   initRegexRules(); // M4: 初始化正则引擎
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
   walkAndTranslate(document.body);
-  console.log(`%c[Cursor-i18n]%c 多引擎动力系统就绪 | 当前模式: ${CONFIG.apiType}`, 'color:#8b5cf6;font-weight:bold', '');
+  console.log(`%c[Cursor-Live-Translator]%c 多引擎动力系统就绪 | 当前模式: ${CONFIG.apiType}`, 'color:#8b5cf6;font-weight:bold', '');
 }
 
 if (document.body) init();

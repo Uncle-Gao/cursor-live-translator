@@ -1,7 +1,7 @@
 {
-  "name": "cursor-settings-zh",
-  "version": "2.1.0",
-  "description": "Cursor 汉化 Pro: AI 驱动的跨平台本地化引擎",
+  "name": "cursor-live-translator",
+  "version": "2.4.0",
+  "description": "Cursor-Live-Translator: AI-Powered Real-time Localization Engine",
   "main": "cursor_zh_pro.js",
   "bin": "cursor_zh_pro.js",
   "keywords": [
@@ -34,12 +34,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Uncle-Gao/cursor-settings-zh.git"
+    "url": "git+https://github.com/Uncle-Gao/cursor-live-translator.git"
   },
   "bugs": {
-    "url": "https://github.com/Uncle-Gao/cursor-settings-zh/issues"
+    "url": "https://github.com/Uncle-Gao/cursor-live-translator/issues"
   },
-  "homepage": "https://github.com/Uncle-Gao/cursor-settings-zh#readme",
+  "homepage": "https://github.com/Uncle-Gao/cursor-live-translator#readme",
   "devDependencies": {
     "pkg": "^5.8.1"
   }

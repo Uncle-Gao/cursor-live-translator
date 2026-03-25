@@ -59,7 +59,7 @@
 ### 2.2 文件结构
 
 ```
-cursor-settings-zh/
+cursor-live-translator/
   cursor_zh_pro.js          # 安装工具（重构后只操作 HTML）
   cursor-i18n-runtime.js    # 运行时翻译脚本模板
   i18n/

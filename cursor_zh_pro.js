@@ -5,16 +5,36 @@ const readline = require('readline');
 const os = require('os');
 
 /**
- * Cursor 汉化 Pro 版 (V2 架构：HTML 注入 + DOM 懒翻译)
+ * Cursor-Live-Translator (V2.3.0 架构：HTML 注入 + AI 实时刷新)
  * 适配版本：2.6.21+
  */
 const BASE_CURSOR_VERSION = '2.6.21';
 
 // === 1. 环境与持久化配置 ===
-const CONFIG_DIR = path.join(os.homedir(), '.cursor_zh_pro');
+const CONFIG_DIR = path.join(os.homedir(), '.cursor_live_translator');
+const OLD_CONFIG_DIR = path.join(os.homedir(), '.cursor_zh_pro');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
+// V2.3 推荐的默认屏蔽列表 (精细化控制)
+const DEFAULT_SKIPS = [
+    ".monaco-breadcrumbs",                    // 面包屑导航
+    ".view-lines.monaco-mouse-cursor-text",   // 编辑器代码行
+    ".monaco-list-row",                       // 各种列表项 (资源管理器、搜索等)
+    ".pane-header.expanded",                  // 面板标题
+    ".xterm-link-layer"                       // 终端内部链接
+];
+
 function ensureConfigDir() {
+    // [V2.3 品牌迁移逻辑]：如果旧配置目录存在而新目录不存在，则执行自动迁移
+    if (fs.existsSync(OLD_CONFIG_DIR) && !fs.existsSync(CONFIG_DIR)) {
+        try {
+            fs.renameSync(OLD_CONFIG_DIR, CONFIG_DIR);
+            console.log(`\n\x1b[32m💡 检测到旧版本配置，已成功迁移至新品牌路径: ~/.cursor_live_translator\x1b[0m\n`);
+        } catch (e) {
+            console.warn(`\n⚠️ 自动迁移配置失败: ${e.message}。您可以手动将 ~/.cursor_zh_pro 更名为 ~/.cursor_live_translator。\n`);
+        }
+    }
+
     if (!fs.existsSync(CONFIG_DIR)) {
         try { fs.mkdirSync(CONFIG_DIR, { recursive: true }); } catch (e) {}
     }
@@ -91,7 +111,11 @@ function loadI18n() {
         const dictPath = path.join(__dirname, 'i18n', 'dictionary.json');
         if (fs.existsSync(dictPath)) {
             const rawDictionary = JSON.parse(fs.readFileSync(dictPath, 'utf8'));
-            Object.assign(resultDict, flattenDict(rawDictionary));
+            // 不再使用 flattenDict，保留嵌套结构和 regex 对象，运行时引擎已支持递归查找
+            Object.assign(resultDict, rawDictionary);
+            console.log(`  ✓ 已从 [${dictPath}] 加载全量本地化词库 (词条数量: ${Object.keys(resultDict).length}+)`);
+        } else {
+            console.error(`❌ 未找到字典文件: ${dictPath}`);
         }
     } catch (err) {
         console.error('❌ 加载 i18n 数据失败:', err.message);
@@ -109,8 +133,12 @@ function loadConfig() {
             const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
             // 补全由于升级可能缺失的字段
             if (!cfg.engines) cfg.engines = {};
+            if (!cfg.skip) cfg.skip = { titles: [], urls: [], selectors: DEFAULT_SKIPS };
             return cfg;
-        } catch (e) {}
+        } catch (e) {
+            console.error(`\n❌ 解析配置文件 [${CONFIG_PATH}] 失败: ${e.message}`);
+            console.error(`请检查文件内容是否为合法的 JSON 格式。您也可以尝试删除该文件并重新配置。\n`);
+        }
     }
     return { 
         activeId: 'none', 
@@ -120,6 +148,11 @@ function loadConfig() {
             qwen: { endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', apiKey: '', model: 'qwen-turbo' },
             kimi: { endpoint: 'https://api.moonshot.cn/v1/chat/completions', apiKey: '', model: 'moonshot-v1-8k' },
             deepl: { endpoint: 'https://api-free.deepl.com/v2/translate', apiKey: '' }
+        },
+        skip: {
+            titles: [],
+            urls: [],
+            selectors: DEFAULT_SKIPS
         }
     };
 }
@@ -192,7 +225,7 @@ function cleanOrphanedBackups(paths) {
 async function showMenu(paths) {
     console.clear();
     const config = loadConfig();
-    console.log(`\n==== Cursor 汉化 Pro: 实时本地化引擎 (V2.1 PRO) ====`);
+    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.3.0 PRO) ====`);
     console.log(` 架构方案 : Trusted Bootstrap + AI Real-time`);
     const currentProduct = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
     const version = currentProduct.version;
@@ -230,6 +263,7 @@ async function showMenu(paths) {
     console.log(` 1. 一键汉化 (V2 动态注入模式)`);
     console.log(` 2. 恢复官方原版`);
     console.log(` 3. 配置 AI 翻译引擎 (信达雅增强)`);
+    console.log(` 4. 管理汉化屏蔽规则 (实时预览)`);
     console.log(` Q. 退出`);
     console.log(`======================================\n`);
     
@@ -238,6 +272,10 @@ async function showMenu(paths) {
     else if (choice === '2') await restoreOfficial(paths);
     else if (choice === '3') {
         await configureAI();
+        await showMenu(paths);
+    }
+    else if (choice === '4') {
+        await manageShielding();
         await showMenu(paths);
     }
     else if (choice.toLowerCase() === 'q') rl.close();
@@ -250,6 +288,109 @@ async function showMenu(paths) {
  * @param {object} engines - 本地所有引擎配置的集合
  * @returns {Promise<{ok: boolean, msg?: string}>}
  */
+async function manageShielding() {
+    while (true) {
+        console.clear();
+        const config = loadConfig();
+        const skip = config.skip || { titles: [], urls: [], selectors: [] };
+        
+        console.log('\n==== 汉化规则屏蔽管理 ====');
+        console.log('您可以指定不需要翻译的区域，修改后需重新运行“一键汉化”生效。\n');
+        
+        console.log('[当前规则预览]');
+        console.log(` 1. 选择器 (Selectors): ${skip.selectors.length > 0 ? skip.selectors.join(', ') : '(无)'}`);
+        console.log(` 2. 窗口标题 (Titles):    ${skip.titles.length > 0 ? skip.titles.join(', ') : '(无)'}`);
+        console.log(` 3. URL 关键词 (URLs):     ${skip.urls.length > 0 ? skip.urls.join(', ') : '(无)'}`);
+        
+        console.log('\n[操作指令]');
+        console.log(' A. 添加选择器 (推荐，如 .sidebar)');
+        console.log(' B. 添加标题库 (如 Output)');
+        console.log(' C. 添加 URL 库 (如 settings)');
+        console.log(' D. 移除现有规则');
+        console.log(' R. 恢复默认屏蔽配置 (重置)');
+        console.log(' Q. 返回上一级');
+
+        const choice = (await askQuestion('\n请选择操作: ')).toUpperCase();
+        if (choice === 'Q') {
+            console.log('\n\x1b[33m[重要提示]\x1b[0m 屏蔽规则已保存。请务必返回主菜单执行 \x1b[1m“1. 一键汉化”\x1b[0m 并 \x1b[1m重启/刷新窗口\x1b[0m 后生效。');
+            await askQuestion('按回车返回...');
+            break;
+        }
+
+        if (choice === 'R') {
+            const confirm = await askQuestion('\n确定要重置所有屏蔽规则为默认推荐值吗? (Y/N): ');
+            if (confirm.toUpperCase() === 'Y') {
+                config.skip = { titles: [], urls: [], selectors: DEFAULT_SKIPS };
+                saveConfig(config);
+                console.log('✓ 已恢复默认屏蔽配置。');
+                await askQuestion('按回车继续...');
+            }
+            continue;
+        }
+
+        if (choice === 'A' || choice === 'B' || choice === 'C') {
+            const typeMap = { 'A': 'selectors', 'B': 'titles', 'C': 'urls' };
+            const typeName = { 'A': '选择器', 'B': '标题关键词', 'C': 'URL 关键词' };
+            const target = typeMap[choice];
+            console.log(`\n请输入要增加的${typeName[choice]}`);
+            console.log(`\x1b[32m[提示]\x1b[0m 推荐直接粘贴开发者工具中复制的类名或 HTML 片段，系统将自动识别格式。`);
+            const input = await askQuestion('> ');
+            let items = input.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            
+            if (choice === 'A') {
+                // 智能识别 Selector 格式
+                items = items.map(item => {
+                    // 1. 如果是完整的 HTML 标签 (如 <div class="foo">)
+                    if (item.startsWith('<')) {
+                        const classMatch = item.match(/class=["'](.*?)["']/);
+                        const idMatch = item.match(/id=["'](.*?)["']/);
+                        if (classMatch) return '.' + classMatch[1].split(' ').filter(c => c).join('.');
+                        if (idMatch) return '#' + idMatch[1];
+                    }
+                    // 2. 如果是纯类名但没加点 (如 explorer-folders-view)
+                    if (/^[a-zA-Z0-9_-]+$/.test(item)) return '.' + item;
+                    // 3. 如果是空格分隔的类名 (如 monaco-workbench sidebar)
+                    if (item.includes(' ') && !item.startsWith('.') && !item.startsWith('#')) {
+                        return '.' + item.split(' ').filter(c => c).join('.');
+                    }
+                    return item;
+                });
+            }
+
+            if (items.length > 0) {
+                config.skip[target] = [...new Set([...config.skip[target], ...items])];
+                saveConfig(config);
+                console.log('✅ 已添加成功！');
+            }
+        } 
+        else if (choice === 'D') {
+            const allItems = [];
+            let count = 1;
+            ['selectors', 'titles', 'urls'].forEach(key => {
+                skip[key].forEach(val => allItems.push({ key, val, id: count++ }));
+            });
+
+            if (allItems.length === 0) {
+                console.log('\n目前没有任何自定义规则。');
+                await askQuestion('按回车继续...');
+                continue;
+            }
+
+            console.log('\n[请选择要移除的规则编号]:');
+            allItems.forEach(item => console.log(` ${item.id}. [${item.key}] ${item.val}`));
+            console.log(' B. 取消');
+            
+            const delIdx = await askQuestion('\n请输入编号: ');
+            const targetItem = allItems.find(it => it.id === parseInt(delIdx));
+            if (targetItem) {
+                config.skip[targetItem.key] = config.skip[targetItem.key].filter(v => v !== targetItem.val);
+                saveConfig(config);
+                console.log('🗑️ 已成功移除。');
+            }
+        }
+    }
+}
+
 async function testModel(activeId, engines) {
     const target = engines[activeId];
     if (!target || !target.apiKey) return { ok: false, msg: '未配置 API Key' };
@@ -441,7 +582,8 @@ async function runLocalization(paths) {
     const runtimeConfig = {
         apiType: (config.activeId === 'none') ? 'none' : (config.activeId === 'deepl' ? 'deepl' : 'openai'),
         openai: (config.activeId !== 'none' && config.activeId !== 'deepl') ? activeEngine : null,
-        deepl: (config.activeId === 'deepl') ? activeEngine : null
+        deepl: (config.activeId === 'deepl') ? activeEngine : null,
+        skip: config.skip || { titles: [], urls: [], selectors: [] }
     };
 
     let runtimeCode = fs.readFileSync(runtimePath, 'utf8');
