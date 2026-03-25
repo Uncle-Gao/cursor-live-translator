@@ -4,6 +4,7 @@
 
 ### 🚀 突破性更新：AI 驱动的全页面汉化
 - **全页面翻译 (Full-Page Coverage)**：打破了以往仅支持菜单汉化的局限。利用智能 DOM 扫描机制，实现对 Cursor 工作区、AI 对话流、编辑器侧边栏等所有界面的 100% 覆盖。
+- **精位屏蔽系统 (Refined Shielding)**：支持自定义禁止翻译的规则。默认已完美保护代码区 (`.view-lines`)、路径导航 (`.monaco-breadcrumbs`) 等区域，确保核心开发体验保持原生英文，不受干扰。
 - **AI 动态注入 (Direct UI Refresh)**：深度集成 OpenAI、DeepSeek、Kimi 等尖端模型，翻译结果异步回传并实时“跳变”更新 UI，提供丝滑的本地化体验。
 - **工业级稳定性**：针对高频 DOM 变动（如 AI 推理流）进行了 `requestAnimationFrame` 级防抖优化，确保翻译过程不产生界面卡顿。
 - **多平台二进制包**：正式发布基于 `pkg` 的预编译包，支持 macOS (x64), Windows (x64), Linux (x64)，即开即用。
