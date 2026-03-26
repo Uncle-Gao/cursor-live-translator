@@ -6,7 +6,7 @@ const os = require('os');
 
 /**
  * Cursor-Live-Translator (V2.4.2 架构：HTML 注入 + AI 实时刷新)
- * 适配版本：2.6.21+
+ *适配版本：2.6.21+
  */
 const BASE_CURSOR_VERSION = '2.6.21';
 
@@ -21,7 +21,8 @@ const DEFAULT_SKIPS = [
     ".view-lines.monaco-mouse-cursor-text",   // 编辑器代码行
     ".monaco-list-row",                       // 各种列表项 (资源管理器、搜索等)
     ".pane-header.expanded",                  // 面板标题
-    ".xterm-link-layer"                       // 终端内部链接
+    ".xterm-link-layer",                      // 终端内部链接
+    ".conversations"                          // AI 对话流区域 (隔离保护)
 ];
 
 function ensureConfigDir() {
