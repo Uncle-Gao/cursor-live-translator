@@ -5,7 +5,7 @@ const readline = require('readline');
 const os = require('os');
 
 /**
- * Cursor-Live-Translator (V2.3.0 架构：HTML 注入 + AI 实时刷新)
+ * Cursor-Live-Translator (V2.4.2 架构：HTML 注入 + AI 实时刷新)
  * 适配版本：2.6.21+
  */
 const BASE_CURSOR_VERSION = '2.6.21';
@@ -55,7 +55,13 @@ function getPaths(customRoot = null) {
         const platform = process.platform;
         if (platform === 'win32') {
             const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
-            appRoot = path.join(localAppData, 'Programs', 'cursor', 'resources', 'app');
+            const programFiles = process.env.PROGRAMFILES || 'C:\\Program Files';
+            const possibleWinPaths = [
+                path.join(localAppData, 'Programs', 'cursor', 'resources', 'app'),
+                path.join(programFiles, 'Cursor', 'resources', 'app'),
+                path.join(process.env.USERPROFILE || '', 'AppData', 'Local', 'Programs', 'cursor', 'resources', 'app')
+            ];
+            appRoot = possibleWinPaths.find(p => fs.existsSync(path.join(p, 'product.json'))) || '';
         } else if (platform === 'darwin') {
             appRoot = '/Applications/Cursor.app/Contents/Resources/app';
         } else {
@@ -64,11 +70,11 @@ function getPaths(customRoot = null) {
                 '/opt/cursor/resources/app',
                 path.join(process.env.HOME || '', '.local', 'lib', 'cursor', 'resources', 'app')
             ];
-            appRoot = possibleLinuxPaths.find(p => fs.existsSync(p)) || '';
+            appRoot = possibleLinuxPaths.find(p => fs.existsSync(path.join(p, 'product.json'))) || '';
         }
     }
 
-    if (!appRoot || !fs.existsSync(appRoot)) {
+    if (!appRoot || !fs.existsSync(appRoot) || !fs.existsSync(path.join(appRoot, 'product.json'))) {
         return null;
     }
 
@@ -165,7 +171,11 @@ async function main() {
     let paths = getPaths();
     while (!paths) {
         console.warn('\n⚠️ 自动检测未发现 Cursor 默认安装目录。');
-        let customPath = await askQuestion('请输入您的 Cursor 所在目录 (如果退出请输入 Q):\n> ');
+        let prompt = '请输入您的 Cursor 所在目录 (如果退出请输入 Q):';
+        if (process.platform === 'win32') {
+            prompt += '\n  提示: 通常位于 C:\\Users\\您的用户名\\AppData\\Local\\Programs\\cursor';
+        }
+        let customPath = await askQuestion(`${prompt}\n> `);
         customPath = customPath.replace(/^["']|["']$/g, '').trim();
         
         if (customPath.toLowerCase() === 'q') {
@@ -225,13 +235,24 @@ function cleanOrphanedBackups(paths) {
 async function showMenu(paths) {
     console.clear();
     const config = loadConfig();
-    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.3.0 PRO) ====`);
+    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.4.2 PRO) ====`);
     console.log(` 架构方案 : Trusted Bootstrap + AI Real-time`);
-    const currentProduct = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
-    const version = currentProduct.version;
-    const bakPattern = `workbench.js.${version}.bak`;
-    const versionedBak = path.join(paths.workbenchDir, bakPattern);
-    const hasCurrentBak = fs.existsSync(versionedBak);
+    
+    let version = 'unknown';
+    let hasCurrentBak = false;
+    try {
+        const currentProduct = JSON.parse(fs.readFileSync(paths.productJson, 'utf8'));
+        version = currentProduct.version;
+        const bakPattern = `workbench.js.${version}.bak`;
+        const versionedBak = path.join(paths.workbenchDir, bakPattern);
+        hasCurrentBak = fs.existsSync(versionedBak);
+    } catch (e) {
+        console.error(`\n❌ 读取 Cursor 核心配置 (product.json) 失败: ${e.message}`);
+        console.warn(`建议手动检查路径: ${paths.productJson}\n`);
+        const retry = await askQuestion('是否尝试输入新路径？(y/n): ');
+        if (retry.toLowerCase() === 'y') return main();
+        process.exit(1);
+    }
     
     // 扫描所有可能的旧备份
     const allFiles = fs.readdirSync(paths.workbenchDir);
@@ -480,6 +501,16 @@ async function configureAI() {
 
         // 配置录入逻辑
         config.activeId = targetId;
+        const helpText = {
+            openai: ' (官网: platform.openai.com)',
+            deepseek: ' (官网: platform.deepseek.com)',
+            qwen: ' (阿里云 DashScope)',
+            kimi: ' (Moonshot AI)',
+            deepl: ' (DeepL Developer Portal)'
+        }[targetId] || '';
+
+        console.log(`\n--- 正在配置 ${targetName}${helpText} ---`);
+        
         if (targetId !== 'deepl') {
             const defaults = {
                 openai: { e: 'https://api.openai.com/v1/chat/completions', m: 'gpt-4o-mini' },
@@ -488,12 +519,12 @@ async function configureAI() {
                 kimi: { e: 'https://api.moonshot.cn/v1/chat/completions', m: 'moonshot-v1-8k' }
             }[targetId];
             
-            targetConfig.endpoint = await askQuestion(`端点 [${targetConfig.endpoint || defaults.e}]: `) || targetConfig.endpoint || defaults.e;
-            targetConfig.model = await askQuestion(`模型 [${targetConfig.model || defaults.m}]: `) || targetConfig.model || defaults.m;
-            targetConfig.apiKey = await askQuestion(`请输入 API Key: `) || targetConfig.apiKey;
+            targetConfig.endpoint = await askQuestion(`接口地址 (API Endpoint) [${targetConfig.endpoint || defaults.e}]: `) || targetConfig.endpoint || defaults.e;
+            targetConfig.model = await askQuestion(`模型名称 (Model ID) [${targetConfig.model || defaults.m}]: `) || targetConfig.model || defaults.m;
+            targetConfig.apiKey = await askQuestion(`请输入 API Key (输入后回车): `) || targetConfig.apiKey;
         } else {
-            targetConfig.endpoint = await askQuestion(`端点 [${targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate'}]: `) || targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate';
-            targetConfig.apiKey = await askQuestion(`请输入 Auth Key: `) || targetConfig.apiKey;
+            targetConfig.endpoint = await askQuestion(`接口地址 (API Endpoint) [${targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate'}]: `) || targetConfig.endpoint || 'https://api-free.deepl.com/v2/translate';
+            targetConfig.apiKey = await askQuestion(`请输入 Auth Key (DeepL 专用令牌): `) || targetConfig.apiKey;
         }
 
         const test = await testModel(targetId, config.engines);
