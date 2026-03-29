@@ -1,6 +1,6 @@
 {
   "name": "cursor-live-translator",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Cursor-Live-Translator: AI-Powered Real-time Localization Engine",
   "main": "cursor_zh_pro.js",
   "bin": "cursor_zh_pro.js",

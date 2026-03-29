@@ -1,5 +1,5 @@
 /**
- * cursor-live-translator-runtime.js (V3.5 - Live Edition)
+ * cursor-live-translator-runtime.js (V3.6 - Live Edition)
  * 支持 OpenAI 与 DeepL 双协议的高品质实时翻译引擎。
  */
 
@@ -18,10 +18,62 @@ try {
   CACHE = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
 } catch (e) {}
 
+// 一次性重置检查 (V2.5 物理清理)
+if (CONFIG.resetCache) {
+  localStorage.removeItem(CACHE_KEY);
+  CACHE = {};
+  console.log('%c[I18N] 已执行缓存物理重置', 'color:#f59e0b;font-weight:bold');
+}
+
+/**
+ * 缓存状态监控器
+ * 计算当前 localStorage 占用的字节数并输出到控制台，同时提供百分比预警（基于 5MB 限制）
+ */
+function logCacheStatus() {
+  try {
+    const serialized = JSON.stringify(CACHE);
+    const bytes = new Blob([serialized]).size;
+    const kb = (bytes / 1024).toFixed(2);
+    const limitKB = 5120; // 5MB
+    const percent = ((kb / limitKB) * 100).toFixed(2);
+
+    let color = '#10b981'; // 绿色 (正常)
+    if (percent > 80) color = '#ef4444'; // 红色 (危险)
+    else if (percent > 50) color = '#f59e0b'; // 橙色 (警告)
+
+    console.log(
+      `%c[I18N]%c 翻译缓存占用: %c${kb} KB / ${limitKB} KB (${percent}%)`,
+      'color:#3b82f6;font-weight:bold',
+      'color:inherit',
+      `color:${color};font-weight:bold`
+    );
+  } catch (e) {
+    console.warn('[I18N] 无法计算缓存体积:', e.message);
+  }
+}
+
 // === 3. 异步翻译管线 (智能防抖与批处理) ===
 const PENDING_JOBS = new Map();
 let globalBatchTimer = null;
 const REQUEST_INTERVAL = 2000;
+const DEBUG_STYLE = `
+  /* 仅在激活态显示边框 */
+  body.i18n-debug-active .i18n-debug-highlight {
+    outline: 1px dashed #3b82f6 !important;
+    outline-offset: -1px !important;
+    background-color: rgba(59, 130, 246, 0.1) !important;
+    position: relative !important;
+  }
+  #i18n-hover-tooltip {
+    position: fixed; z-index: 1000000; padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.85); color: #fff; border-radius: 4px;
+    font-size: 12px; pointer-events: none; display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3); backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,0.1); max-width: 450px;
+    word-break: break-word; line-height: 1.4;
+  }
+`;
+const HAS_CHINESE = /[\u4e00-\u9fa5]/;
 
 /**
  * 核心：多引擎适配转发器
@@ -42,7 +94,8 @@ async function callOnlineAPI(texts) {
  * OpenAI 协议适配
  */
 async function callOpenAI(texts) {
-  const prompt = `Translate software UI strings to Simplified Chinese (Faithful, Expressive, Elegant). Return JSON ONLY.
+  const prompt = `Translate software UI strings to Simplified Chinese (Faithful, Expressive, Elegant). 
+Return JSON ONLY with keys as original strings and values as translated strings.
 Strings: ${JSON.stringify(texts)}`;
 
   try {
@@ -55,13 +108,23 @@ Strings: ${JSON.stringify(texts)}`;
       body: JSON.stringify({
         model: CONFIG.openai.model,
         messages: [{ role: 'system', content: prompt }],
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
+        max_tokens: 4096,
+        temperature: 0.3
       })
     });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
     const data = await response.json();
-    const result = JSON.parse(data.choices[0].message.content);
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error('Empty AI response');
+    
+    const result = JSON.parse(content);
     applyTranslations(result);
-  } catch (err) { console.error('[I18N] OpenAI Error', err); }
+  } catch (err) { 
+    console.error('[I18N] OpenAI Error:', err.message || err);
+  }
 }
 
 /**
@@ -99,9 +162,14 @@ async function callDeepL(texts) {
  * @param {object} newMap - 新的 { '英文原句': '中文翻译' } 字典映射
  */
 function applyTranslations(newMap) {
-    Object.assign(CACHE, newMap);
+  Object.assign(CACHE, newMap);
+  try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(CACHE));
-    requestAnimationFrame(() => walkAndTranslate(document.body));
+  } catch (e) {
+    console.error('%c[I18N] 写入缓存失败 (可能超 5MB 限制):', 'color:#ef4444;font-weight:bold', e.message);
+  }
+  logCacheStatus();
+  requestAnimationFrame(() => walkAndTranslate(document.body));
 }
 
 /**
@@ -116,10 +184,16 @@ function scheduleTranslation(text) {
 
   if (globalBatchTimer) clearTimeout(globalBatchTimer);
   globalBatchTimer = setTimeout(() => {
-    const batch = Array.from(PENDING_JOBS.keys());
+    let batch = Array.from(PENDING_JOBS.keys());
+    PENDING_JOBS.clear();
+    
     if (batch.length > 0) {
-      callOnlineAPI(batch);
-      PENDING_JOBS.clear();
+      // 每 30 个词条分一组，防止 JSON 过大导致 AI 响应截断
+      const chunkSize = 30;
+      for (let i = 0; i < batch.length; i += chunkSize) {
+          const chunk = batch.slice(i, i + chunkSize);
+          callOnlineAPI(chunk);
+      }
     }
   }, REQUEST_INTERVAL);
 }
@@ -171,7 +245,10 @@ function getTranslation(text) {
       }
   }
 
-  // 4. 调度 AI 翻译
+  // 4. 安全检查：如果已包含中文且无本地配置，则跳过 AI 调度，防止重复翻译
+  if (HAS_CHINESE.test(t)) return null;
+
+  // 5. 调度 AI 翻译
   scheduleTranslation(t);
   return null;
 }
@@ -208,6 +285,12 @@ function processNode(node) {
   const raw = node.textContent.trim();
   const trans = getTranslation(raw);
   if (trans && node.textContent !== node.textContent.replace(raw, trans)) {
+    const parent = node.parentElement;
+    if (parent) {
+      // V2.5: 始终注入标签，无需判断 CONFIG.debug
+      parent.classList.add('i18n-debug-highlight');
+      parent.setAttribute('data-i18n-original', raw);
+    }
     node.textContent = node.textContent.replace(raw, trans);
   }
 }
@@ -218,6 +301,9 @@ function processTitle(el) {
   if (!title) return;
   const target = getTranslation(title.trim());
   if (target && title !== title.replace(title.trim(), target)) {
+    // V2.5: 始终注入标签
+    el.classList.add('i18n-debug-highlight');
+    el.setAttribute('data-i18n-original-title', title);
     el.setAttribute('title', title.replace(title.trim(), target));
   }
 }
@@ -273,20 +359,49 @@ const observer = new MutationObserver((mutations) => {
 });
 
 function init() {
-  // === 全局环境屏蔽检查 ===
-  if (SKIP_URLS.some(u => location.href.includes(u))) {
-      console.log('[Cursor-Live-Translator] 当前 URL 已在屏蔽名单，停止运行。');
-      return;
-  }
-  if (SKIP_TITLES.some(t => document.title.includes(t))) {
-      console.log('[Cursor-Live-Translator] 当前 窗口标题 已在屏蔽名单，停止运行。');
-      return;
-  }
+  if (SKIP_URLS.some(u => location.href.includes(u)) || SKIP_TITLES.some(t => document.title.includes(t))) return;
 
-  initRegexRules(); // M4: 初始化正则引擎
+  initRegexRules();
+  
+  // 始终注入样式和 Tooltip 节点
+  const style = document.createElement('style');
+  style.textContent = DEBUG_STYLE;
+  document.head.appendChild(style);
+
+  const tooltip = document.createElement('div');
+  tooltip.id = 'i18n-hover-tooltip';
+  document.body.appendChild(tooltip);
+
+  // 全平台快捷键监听 (Mac/Win)
+  window.addEventListener('keydown', (e) => {
+    // 切换高亮: Cmd/Ctrl + Opt/Alt + Shift + B
+    const isToggle = (e.metaKey || e.ctrlKey) && e.altKey && e.shiftKey && e.code === 'KeyB';
+    if (isToggle) {
+      document.body.classList.toggle('i18n-debug-active');
+      console.log('[I18N] 调试模式已切换:', document.body.classList.contains('i18n-debug-active'));
+    }
+  });
+
+  // 悬停感应 (仅在高亮模式下按住 Alt/Option 生效)
+  document.body.addEventListener('mouseover', (e) => {
+    if (!document.body.classList.contains('i18n-debug-active') || !e.altKey) return;
+    const target = e.target.closest('.i18n-debug-highlight');
+    if (target) {
+      const original = target.getAttribute('data-i18n-original') || target.getAttribute('data-i18n-original-title');
+      if (original) {
+        tooltip.textContent = `原文：${original}`;
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${Math.min(e.clientX + 10, window.innerWidth - tooltip.offsetWidth - 20)}px`;
+        tooltip.style.top = `${Math.min(e.clientY + 10, window.innerHeight - tooltip.offsetHeight - 20)}px`;
+      }
+    }
+  });
+  document.body.addEventListener('mouseout', () => { tooltip.style.display = 'none'; });
+
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
   walkAndTranslate(document.body);
-  console.log(`%c[Cursor-Live-Translator]%c 多引擎动力系统就绪 | 当前模式: ${CONFIG.apiType}`, 'color:#8b5cf6;font-weight:bold', '');
+  logCacheStatus();
+  console.log(`%c[Cursor-Live-Translator]%c 动力系统就绪 | V2.4.3 (Eng: ${CONFIG.engineId || CONFIG.apiType})`, 'color:#8b5cf6;font-weight:bold', '');
 }
 
 if (document.body) init();
