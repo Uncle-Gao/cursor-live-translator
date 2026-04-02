@@ -5,7 +5,7 @@ const readline = require('readline');
 const os = require('os');
 
 /**
- * Cursor-Live-Translator (V2.4.3 架构：HTML 注入 + AI 实时刷新)
+ * Cursor-Live-Translator (V2.5.0 架构：HTML 注入 + AI 实时刷新)
  * 适配版本：2.6.21+
  */
 const BASE_CURSOR_VERSION = '2.6.21';
@@ -136,30 +136,44 @@ function loadI18n() {
 const I18N_DICT = loadI18n();
 
 // === 3. 配置管理 ===
+const DEFAULT_ENTITY_SKIP = () => ({ titles: [], urls: [], selectors: [...DEFAULT_SKIPS] });
+
 function loadConfig() {
     ensureConfigDir();
     if (fs.existsSync(CONFIG_PATH)) {
         try {
             const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-            // [V2.5.1 智能补全] 确保所有核心字段存在
             if (!cfg.engines) cfg.engines = {};
-            if (!cfg.skip) cfg.skip = { titles: [], urls: [], selectors: DEFAULT_SKIPS };
-            
-            // 深度补全：防止 skip.selectors 等二级字段缺失或旧规则未更新
-            if (!cfg.skip.selectors) cfg.skip.selectors = DEFAULT_SKIPS;
-            if (!cfg.skip.titles) cfg.skip.titles = [];
-            if (!cfg.skip.urls) cfg.skip.urls = [];
 
-            // 智能合并：将最新的 DEFAULT_SKIPS 推荐规则合并至用户配置中（去重）
-            const currentSelectors = new Set(cfg.skip.selectors);
+            // [V2.6.0 配置升级] 检测旧格式 (skip.selectors 直接存在) 并自动迁移
+            if (cfg.skip && Array.isArray(cfg.skip.selectors)) {
+                console.log('\x1b[32m 🔄 [V2.6 配置升级] 检测到旧版屏蔽规则格式，自动迁移至分域结构...\x1b[0m');
+                cfg.skip = {
+                    _cursor_: {
+                        titles: cfg.skip.titles || [],
+                        urls: cfg.skip.urls || [],
+                        selectors: cfg.skip.selectors.length > 0 ? cfg.skip.selectors : [...DEFAULT_SKIPS]
+                    }
+                };
+                saveConfig(cfg);
+                console.log('\x1b[32m  ✓ 您的 API Key 和自定义屏蔽规则已完整保留。\x1b[0m');
+            }
+
+            // 确保 _cursor_ 节点存在
+            if (!cfg.skip) cfg.skip = {};
+            if (!cfg.skip._cursor_) cfg.skip._cursor_ = DEFAULT_ENTITY_SKIP();
+            const cursorSkip = cfg.skip._cursor_;
+            if (!cursorSkip.selectors) cursorSkip.selectors = [...DEFAULT_SKIPS];
+            if (!cursorSkip.titles) cursorSkip.titles = [];
+            if (!cursorSkip.urls) cursorSkip.urls = [];
+
+            // 智能合并：将最新的 DEFAULT_SKIPS 推荐规则合并至 _cursor_ (去重)
+            const currentSelectors = new Set(cursorSkip.selectors);
             let hasNew = false;
             DEFAULT_SKIPS.forEach(s => {
-                if (!currentSelectors.has(s)) {
-                    cfg.skip.selectors.push(s);
-                    hasNew = true;
-                }
+                if (!currentSelectors.has(s)) { cursorSkip.selectors.push(s); hasNew = true; }
             });
-            if (hasNew) saveConfig(cfg); // 发现新规则即物理回写同步
+            if (hasNew) saveConfig(cfg);
 
             return cfg;
         } catch (e) {
@@ -176,11 +190,7 @@ function loadConfig() {
             kimi: { endpoint: 'https://api.moonshot.cn/v1/chat/completions', apiKey: '', model: 'moonshot-v1-8k' },
             deepl: { endpoint: 'https://api-free.deepl.com/v2/translate', apiKey: '' }
         },
-        skip: {
-            titles: [],
-            urls: [],
-            selectors: DEFAULT_SKIPS
-        },
+        skip: { _cursor_: DEFAULT_ENTITY_SKIP() },
         resetCache: false
     };
 }
@@ -188,6 +198,172 @@ function saveConfig(cfg) {
     ensureConfigDir();
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
 }
+
+// === 4. 插件 Webview 汉化模块 ===
+
+// 'anthropic.claude-code-2.1.90-darwin-x64' → 'anthropic.claude-code'
+function toPluginKey(dirName) {
+    return dirName.replace(/-[\d]+(\.[\d]+)*(-[a-z].*)?$/, '');
+}
+
+// 获取某实体的屏蔽配置，不存在则创建空结构
+function getEntitySkip(config, key) {
+    if (!config.skip) config.skip = {};
+    if (!config.skip[key]) config.skip[key] = { titles: [], urls: [], selectors: [] };
+    const s = config.skip[key];
+    if (!s.titles) s.titles = [];
+    if (!s.urls) s.urls = [];
+    if (!s.selectors) s.selectors = [];
+    return s;
+}
+
+// 查找某插件当前已有的备份文件（含版本号）
+function getExistingBak(plugin) {
+    const dir = path.dirname(plugin.webviewJs);
+    const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    const bakFile = files.find(f => f.startsWith('index.js.') && f.endsWith('.bak'));
+    if (!bakFile) return null;
+    const verMatch = bakFile.match(/^index\.js\.(.+)\.bak$/);
+    return { path: path.join(dir, bakFile), version: verMatch ? verMatch[1] : 'unknown' };
+}
+
+// 扫描 ~/.cursor/extensions/ 找到所有含 webview/index.js 的插件
+function getPluginPaths() {
+    const extDir = path.join(os.homedir(), '.cursor', 'extensions');
+    if (!fs.existsSync(extDir)) return [];
+    const results = [];
+    for (const name of fs.readdirSync(extDir)) {
+        const webviewJs = path.join(extDir, name, 'webview', 'index.js');
+        if (!fs.existsSync(webviewJs)) continue;
+        let version = 'unknown';
+        try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(extDir, name, 'package.json'), 'utf8'));
+            version = pkg.version || 'unknown';
+        } catch (e) { }
+        const pluginKey = toPluginKey(name);
+        results.push({ name, version, webviewJs, pluginKey, bakPath: `${webviewJs}.${version}.bak` });
+    }
+    return results;
+}
+
+// 对单个插件执行备份 + 注入
+function patchPlugin(plugin, runtimeCode, config) {
+    const existingBak = getExistingBak(plugin);
+    if (existingBak && existingBak.version !== plugin.version) {
+        console.log(`  ⚠️ 检测到插件已更新 (${existingBak.version} → ${plugin.version})，清除旧备份并重新备份...`);
+        fs.unlinkSync(existingBak.path);
+    }
+    if (!fs.existsSync(plugin.bakPath)) {
+        fs.copyFileSync(plugin.webviewJs, plugin.bakPath);
+        console.log(`  ✓ 已备份原始文件 (v${plugin.version})`);
+    }
+    fs.copyFileSync(plugin.bakPath, plugin.webviewJs); // 每次从干净备份重新注入
+    const pluginSkip = getEntitySkip(config, plugin.pluginKey);
+    const activeEngine = config.engines[config.activeId];
+    const runtimeConfig = {
+        apiType: (config.activeId === 'none') ? 'none' : (config.activeId === 'deepl' ? 'deepl' : 'openai'),
+        engineId: config.activeId,
+        openai: (config.activeId !== 'none' && config.activeId !== 'deepl') ? activeEngine : null,
+        deepl: (config.activeId === 'deepl') ? activeEngine : null,
+        skip: pluginSkip,
+        resetCache: false,
+        name: plugin.name
+    };
+    const injectCode = `\n\n// === * cursor-live-translator-runtime.js (V2.6.0 - Live Edition) v${plugin.version} ===\n` +
+        `(function(){\n` +
+        `window.__CURSOR_TERMS__ = Object.assign(window.__CURSOR_TERMS__ || {}, ${JSON.stringify(I18N_DICT)});\n` +
+        `window.__I18N_CONFIG__ = ${JSON.stringify(runtimeConfig)};\n` +
+        `${runtimeCode}\n` +
+        `})();\n`;
+    fs.appendFileSync(plugin.webviewJs, injectCode, 'utf8');
+    console.log(`  ✓ ${plugin.name} @${plugin.version} 已注入汉化引擎`);
+}
+
+// 对单个插件执行恢复
+function restorePlugin(plugin) {
+    const existingBak = getExistingBak(plugin);
+    if (!existingBak) { console.log(`  ⚠️ ${plugin.name} 无备份，跳过`); return false; }
+    fs.copyFileSync(existingBak.path, plugin.webviewJs);
+    fs.unlinkSync(existingBak.path);
+    console.log(`  ✓ ${plugin.name} 已还原为原版`);
+    return true;
+}
+
+// 插件汉化交互式管理菜单
+async function managePluginLocalization() {
+    const runtimePath = path.join(__dirname, 'cursor-i18n-runtime.js');
+    if (!fs.existsSync(runtimePath)) {
+        console.error('❌ 找不到运行时引擎 (cursor-i18n-runtime.js)');
+        await askQuestion('按回车返回...');
+        return;
+    }
+    const runtimeCode = fs.readFileSync(runtimePath, 'utf8');
+
+    while (true) {
+        console.clear();
+        const config = loadConfig();
+        const plugins = getPluginPaths();
+
+        console.log('\n==== Webview 插件汉化管理 ====');
+        if (plugins.length === 0) {
+            console.log('\n未检测到任何含 Webview 界面的插件。');
+            await askQuestion('按回车返回...');
+            return;
+        }
+
+        console.log('\n[已发现的 Webview 插件]');
+        plugins.forEach((p, i) => {
+            const bak = getExistingBak(p);
+            let status;
+            if (!bak) { status = '⚪ 未汉化'; }
+            else if (bak.version !== p.version) { status = `🟡 已汉化 v${bak.version} [⚠️ 插件已更新为 v${p.version}，建议重新汉化]`; }
+            else { status = `🟢 已汉化 v${bak.version}`; }
+            console.log(` ${i + 1}. ${p.name}  [${status}]`);
+        });
+
+        console.log('\n[汉化操作]');
+        console.log(' A.  汉化所有插件');
+        console.log(' 1-N. 选择序号汉化单个插件');
+        console.log('\n[恢复操作]');
+        console.log(' B.  恢复所有插件原版');
+        console.log(' R+序号. 恢复单个插件 (如 R1)');
+        console.log('\n Q.  返回主菜单');
+
+        const choice = (await askQuestion('\n请选择操作: ')).trim();
+        if (choice.toUpperCase() === 'Q') break;
+
+        if (choice.toUpperCase() === 'A') {
+            console.log('\n--- 汉化所有 Webview 插件 ---');
+            for (const p of plugins) patchPlugin(p, runtimeCode, config);
+            saveConfig(config);
+            console.log('\n✅ 全部插件汉化完成！请彻底重启 Cursor 后生效。');
+            await askQuestion('按回车继续...');
+        } else if (choice.toUpperCase() === 'B') {
+            console.log('\n--- 恢复所有 Webview 插件原版 ---');
+            let count = 0;
+            for (const p of plugins) { if (restorePlugin(p)) count++; }
+            console.log(`\n✅ 已还原 ${count} 个插件。请彻底重启 Cursor 后生效。`);
+            await askQuestion('按回车继续...');
+        } else if (/^r\d+$/i.test(choice)) {
+            const idx = parseInt(choice.slice(1)) - 1;
+            if (idx >= 0 && idx < plugins.length) {
+                restorePlugin(plugins[idx]);
+                console.log('\n✅ 已还原。请彻底重启 Cursor 后生效。');
+            } else { console.log('❌ 序号无效。'); }
+            await askQuestion('按回车继续...');
+        } else {
+            const idx = parseInt(choice) - 1;
+            if (idx >= 0 && idx < plugins.length) {
+                console.log(`\n--- 汉化 ${plugins[idx].name} ---`);
+                patchPlugin(plugins[idx], runtimeCode, config);
+                saveConfig(config);
+                console.log('\n✅ 汉化完成！请彻底重启 Cursor 后生效。');
+            } else { console.log('❌ 无效输入。'); }
+            await askQuestion('按回车继续...');
+        }
+    }
+}
+
 
 async function main() {
     let paths = getPaths();
@@ -257,10 +433,10 @@ function cleanOrphanedBackups(paths) {
 async function showMenu(paths) {
     console.clear();
     const config = loadConfig();
-    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.4.3 PRO) ====`);
+    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.5.0 PRO) ====`);
     const isMac = process.platform === 'darwin';
     console.log(` 💡 [操作指引] 调试高亮: ${isMac ? 'Cmd+Opt+Shift+B' : 'Ctrl+Alt+Shift+B'} | 溯源原文: ${isMac ? 'Option' : 'Alt'} + 悬停`);
-    console.log(` 架构方案 : Trusted Bootstrap + AI Real-time (V2.5)`);
+    console.log(` 架构方案 : Trusted Bootstrap + AI Real-time + Plugin Webview (V2.6)`);
 
     let version = 'unknown';
     let hasCurrentBak = false;
@@ -299,6 +475,16 @@ async function showMenu(paths) {
     }
     console.log(` AI 引擎  : ${aiStatus}`);
 
+    // 插件汉化状态
+    const webviewPlugins = getPluginPaths();
+    const localizedPlugins = webviewPlugins.filter(p => getExistingBak(p));
+    if (webviewPlugins.length > 0) {
+        const pluginStatus = localizedPlugins.length > 0
+            ? `🟢 ${localizedPlugins.length}/${webviewPlugins.length} 个 Webview 插件已注入`
+            : `⚪ ${webviewPlugins.length} 个 Webview 插件尚未汉化`;
+        console.log(` 插件汉化 : ${pluginStatus}`);
+    }
+
     const orphanedCount = cleanOrphanedBackups(paths);
     if (orphanedCount > 0) {
         console.log(`\n 🧹 已为您静默清除了 ${orphanedCount} 个来自旧版 V1 的遗留备份垃圾！`);
@@ -310,6 +496,7 @@ async function showMenu(paths) {
     console.log(` 3. 配置 AI 翻译引擎 (信达雅增强)`);
     console.log(` 4. 管理汉化屏蔽规则 (实时预览)`);
     console.log(` 5. 清理全部 AI 实时翻译记录 (排除故障与重置) ${config.resetCache ? '🔴 [已就绪]' : ''}`);
+    console.log(` 6. 汉化 Webview 插件 (如 Claude Code)`);
     console.log(` Q. 退出`);
     console.log(`======================================\n`);
 
@@ -328,31 +515,52 @@ async function showMenu(paths) {
         config.resetCache = !config.resetCache;
         saveConfig(config);
         if (config.resetCache) {
-            console.log(`\n✅ 缓存清理指令已就绪！下次执行“一键汉化”并启动 Cursor 时将生效。`);
+            console.log(`\n✅ 缓存清理指令已就绪！下次执行"一键汉化"并启动 Cursor 时将生效。`);
         } else {
             console.log(`\n已取消缓存清理。`);
         }
         await askQuestion('按回车继续...');
         await showMenu(paths);
     }
+    else if (choice === '6') {
+        await managePluginLocalization();
+        await showMenu(paths);
+    }
     else if (choice.toLowerCase() === 'q') rl.close();
     else await showMenu(paths);
 }
 
-/**
- * 验证指定 AI 模型的在线连通性
- * @param {string} activeId - 要测试的模型核心标识（如 deepseek, openai, deepl）
- * @param {object} engines - 本地所有引擎配置的集合
- * @returns {Promise<{ok: boolean, msg?: string}>}
- */
 async function manageShielding() {
+    // 先选择要管理哪个目标的屏蔽规则
+    let entityKey = '_cursor_';
+    let entityName = 'Cursor 主窗口';
+
+    console.clear();
+    const allPlugins = getPluginPaths();
+    console.log('\n==== 管理屏蔽规则 —— 请选择目标 ====');
+    console.log(' 0. Cursor 主窗口 (默认)');
+    allPlugins.forEach((p, i) => console.log(` ${i + 1}. ${p.name} (${p.pluginKey})`));
+    console.log(' Q. 返回');
+
+    const sel = (await askQuestion('\n请输入编号: ')).trim();
+    if (sel.toUpperCase() === 'Q') return;
+    if (sel !== '0') {
+        const idx = parseInt(sel) - 1;
+        if (idx >= 0 && idx < allPlugins.length) {
+            entityKey = allPlugins[idx].pluginKey;
+            entityName = allPlugins[idx].name;
+        } else {
+            console.log('❌ 序号无效，默认管理 Cursor 主窗口规则。');
+        }
+    }
+
     while (true) {
         console.clear();
         const config = loadConfig();
-        const skip = config.skip || { titles: [], urls: [], selectors: [] };
+        const skip = getEntitySkip(config, entityKey);
 
-        console.log('\n==== 汉化规则屏蔽管理 ====');
-        console.log('您可以指定不需要翻译的区域，修改后需重新运行“一键汉化”生效。\n');
+        console.log(`\n==== 汉化屏蔽规则管理 [目标: ${entityName}] ====`);
+        console.log('您可以指定不需要翻译的区域，修改后需重新运行"一键汉化"生效。\n');
 
         console.log('[当前规则预览]');
         console.log(` 1. 选择器 (Selectors): ${skip.selectors.length > 0 ? skip.selectors.join(', ') : '(无)'}`);
@@ -364,22 +572,22 @@ async function manageShielding() {
         console.log(' B. 添加标题库 (如 Output)');
         console.log(' C. 添加 URL 库 (如 settings)');
         console.log(' D. 移除现有规则');
-        console.log(' R. 恢复默认屏蔽配置 (重置)');
+        console.log(` R. 重置规则${entityKey === '_cursor_' ? ' (恢复默认推荐值)' : ' (清空自定义规则)'}`);
         console.log(' Q. 返回上一级');
 
         const choice = (await askQuestion('\n请选择操作: ')).toUpperCase();
         if (choice === 'Q') {
-            console.log('\n\x1b[33m[重要提示]\x1b[0m 屏蔽规则已保存。请务必返回主菜单执行 \x1b[1m“1. 一键汉化”\x1b[0m 并 \x1b[1m重启/刷新窗口\x1b[0m 后生效。');
+            console.log('\n\x1b[33m[重要提示]\x1b[0m 屏蔽规则已保存。请务必返回主菜单执行 \x1b[1m"1. 一键汉化"\x1b[0m 并 \x1b[1m重启/刷新窗口\x1b[0m 后生效。');
             await askQuestion('按回车返回...');
             break;
         }
 
         if (choice === 'R') {
-            const confirm = await askQuestion('\n确定要重置所有屏蔽规则为默认推荐值吗? (Y/N): ');
+            const confirm = await askQuestion('\n确定要重置该目标的屏蔽规则吗? (Y/N): ');
             if (confirm.toUpperCase() === 'Y') {
-                config.skip = { titles: [], urls: [], selectors: DEFAULT_SKIPS };
+                config.skip[entityKey] = entityKey === '_cursor_' ? DEFAULT_ENTITY_SKIP() : { titles: [], urls: [], selectors: [] };
                 saveConfig(config);
-                console.log('✓ 已恢复默认屏蔽配置。');
+                console.log('✓ 已重置屏蔽配置。');
                 await askQuestion('按回车继续...');
             }
             continue;
@@ -395,18 +603,14 @@ async function manageShielding() {
             let items = input.split(',').map(s => s.trim()).filter(s => s.length > 0);
 
             if (choice === 'A') {
-                // 智能识别 Selector 格式
                 items = items.map(item => {
-                    // 1. 如果是完整的 HTML 标签 (如 <div class="foo">)
                     if (item.startsWith('<')) {
                         const classMatch = item.match(/class=["'](.*?)["']/);
                         const idMatch = item.match(/id=["'](.*?)["']/);
                         if (classMatch) return '.' + classMatch[1].split(' ').filter(c => c).join('.');
                         if (idMatch) return '#' + idMatch[1];
                     }
-                    // 2. 如果是纯类名但没加点 (如 explorer-folders-view)
                     if (/^[a-zA-Z0-9_-]+$/.test(item)) return '.' + item;
-                    // 3. 如果是空格分隔的类名 (如 monaco-workbench sidebar)
                     if (item.includes(' ') && !item.startsWith('.') && !item.startsWith('#')) {
                         return '.' + item.split(' ').filter(c => c).join('.');
                     }
@@ -415,7 +619,7 @@ async function manageShielding() {
             }
 
             if (items.length > 0) {
-                config.skip[target] = [...new Set([...config.skip[target], ...items])];
+                skip[target] = [...new Set([...skip[target], ...items])];
                 saveConfig(config);
                 console.log('✅ 已添加成功！');
             }
@@ -440,7 +644,7 @@ async function manageShielding() {
             const delIdx = await askQuestion('\n请输入编号: ');
             const targetItem = allItems.find(it => it.id === parseInt(delIdx));
             if (targetItem) {
-                config.skip[targetItem.key] = config.skip[targetItem.key].filter(v => v !== targetItem.val);
+                skip[targetItem.key] = skip[targetItem.key].filter(v => v !== targetItem.val);
                 saveConfig(config);
                 console.log('🗑️ 已成功移除。');
             }
@@ -455,7 +659,6 @@ async function testModel(activeId, engines) {
     console.log(`  ⏳ 正在验证 ${activeId} 连通性...`);
     try {
         if (activeId !== 'deepl') {
-            // 所有非 DeepL 都走 OpenAI 协议
             const res = await fetch(target.endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${target.apiKey}` },
@@ -651,7 +854,7 @@ async function runLocalization(paths) {
         engineId: config.activeId,
         openai: (config.activeId !== 'none' && config.activeId !== 'deepl') ? activeEngine : null,
         deepl: (config.activeId === 'deepl') ? activeEngine : null,
-        skip: config.skip || { titles: [], urls: [], selectors: [] },
+        skip: config.skip._cursor_ || DEFAULT_ENTITY_SKIP(),
         resetCache: !!config.resetCache
     };
 
@@ -711,11 +914,21 @@ async function runLocalization(paths) {
     }
 
     const isMac = process.platform === 'darwin';
-    console.log(`\n✨ V2.4.3 汉化顺利完成！请彻底重启 Cursor 以拉起底层的翻译网络。`);
+    console.log(`\n✨ V2.5.0 汉化顺利完成！请彻底重启 Cursor 以拉起底层的翻译网络。`);
     console.log(`\n💡 温馨提示：`);
     console.log(`   - 调试高亮: ${isMac ? 'Cmd+Opt+Shift+B' : 'Ctrl+Alt+Shift+B'}`);
     console.log(`   - 溯源原文: 按住 ${isMac ? 'Option' : 'Alt'} 键并悬停在中文上`);
-    await askQuestion('\n按 Enter 键返回菜单...');
+
+    // 自动追加插件汉化询问
+    const webviewPlugins = getPluginPaths();
+    if (webviewPlugins.length > 0) {
+        const patchPlugins = await askQuestion('\n是否同时汉化 Webview 插件 (如 Claude Code)？(Y/n): ');
+        if (patchPlugins.toLowerCase() !== 'n') {
+            await managePluginLocalization(paths);
+        }
+    }
+
+    await askQuestion('\n全部操作已完成，按 Enter 键返回主菜单...');
     await showMenu(paths);
 }
 
@@ -814,6 +1027,16 @@ async function restoreOfficial(paths) {
     }
 
     console.log('\n✅ 恢复官方成功！一切内容已还原本源。');
+
+    // 插件汉化联动恢复
+    const pluginsWithBak = getPluginPaths().filter(p => getExistingBak(p));
+    if (pluginsWithBak.length > 0) {
+        console.log(`\n💡 检测到 ${pluginsWithBak.length} 个已汉化的 Webview 插件。`);
+        const ans = await askQuestion(`是否一并恢复这些插件至原版？(Y/n): `);
+        if (ans.toLowerCase() !== 'n') {
+            pluginsWithBak.forEach(p => restorePlugin(p));
+        }
+    }
 
     // [V2.5.2 彻底卸载引导]
     const cleanCfg = await askQuestion('\n是否同时清除插件的本地配置文件 (包含 AI Key 与屏蔽规则)？(y/N): ');
