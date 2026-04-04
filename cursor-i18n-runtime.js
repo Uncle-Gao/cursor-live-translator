@@ -1,5 +1,5 @@
 /**
- * cursor-live-translator-runtime.js (V2.5.0 - Live Edition)
+ * cursor-live-translator-runtime.js (V2.5.1 - Live Edition)
  * 支持 OpenAI 与 DeepL 双协议的高品质实时翻译引擎。
  */
 
@@ -12,6 +12,7 @@ const SKIP_URLS = CONFIG.skip?.urls || [];
 const SKIP_SELECTORS = CONFIG.skip?.selectors || [];
 const CACHE_KEY = 'cursor_i18n_v2_pro_cache';
 const IS_WORKBENCH = window.self === window.top;
+const MATCHED_SELECTORS = new Set(); // [V2.5.2] 记录已匹配的屏蔽规则，用于日志去重
 
 // === 2. 缓存体系 ===
 let CACHE = {};
@@ -57,8 +58,10 @@ function logCacheStatus() {
 // === 3. 异步翻译管线 (智能防抖与批处理) ===
 const PENDING_JOBS = new Set();
 const IN_FLIGHT_JOBS = new Set();
+const ERROR_JOBS = new Map(); // [V2.5.1] 用于记录失败任务及原因
 let globalBatchTimer = null;
 const REQUEST_INTERVAL = 2000;
+const API_TIMEOUT = 12000; // [V2.5.3] 网络请求超时限制 (12秒)
 const DEBUG_STYLE = `
   /* 仅在激活态显示边框 */
   body.i18n-debug-active .i18n-debug-highlight {
@@ -90,6 +93,23 @@ const DEBUG_STYLE = `
     pointer-events: none;
     opacity: 1 !important;
   }
+  .i18n-error::after {
+    content: '!';
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-left: 6px;
+    vertical-align: middle;
+    text-align: center;
+    line-height: 0.7em; /* 居中对齐 */
+    font-size: 0.6em;
+    font-weight: 900;
+    color: #622b2bff;
+    border: 2px solid rgba(239, 68, 68, 0.3);
+    border-radius: 50%;
+    cursor: help;
+    box-sizing: border-box;
+  }
   @keyframes i18n-spin {
     to { transform: rotate(360deg); }
   }
@@ -104,9 +124,19 @@ const HAS_CHINESE = /[\u4e00-\u9fa5]/;
 async function callOnlineAPI(texts) {
   if (CONFIG.apiType === 'none') return;
 
-  if (CONFIG.apiType === 'openai' && CONFIG.openai?.apiKey) {
+  // [V2.5.3] 配置完整性预检，防止因配置缺失导致的 PENDING 挂起
+  const isInvalid = (CONFIG.apiType === 'openai' && !CONFIG.openai?.apiKey) ||
+    (CONFIG.apiType === 'deepl' && !CONFIG.deepl?.apiKey);
+
+  if (isInvalid) {
+    console.error('[I18N] 翻译配置不完整，无法发起请求:', CONFIG.apiType);
+    applyTranslationErrors(texts, '翻译配置不完整 (缺失 API Key)');
+    return;
+  }
+
+  if (CONFIG.apiType === 'openai') {
     await callOpenAI(texts);
-  } else if (CONFIG.apiType === 'deepl' && CONFIG.deepl?.apiKey) {
+  } else if (CONFIG.apiType === 'deepl') {
     await callDeepL(texts);
   }
 }
@@ -115,9 +145,15 @@ async function callOnlineAPI(texts) {
  * OpenAI 协议适配
  */
 async function callOpenAI(texts) {
-  const prompt = `Translate software UI strings to Simplified Chinese (Faithful, Expressive, Elegant). 
-Return JSON ONLY with keys as original strings and values as translated strings.
+  if (document.body.classList.contains('i18n-debug-active')) {
+    console.log(`%c[I18N-TRACE] OpenAI 请求发起 (${texts.length} 条):`, 'color:#3b82f6', texts);
+    console.log(`%c[I18N-TRACE] Payload 预览: ${JSON.stringify(texts).substring(0, 200)}...`, 'color:#64748b');
+  }
+  const prompt = `UI strings to Simplified Chinese. Return JSON only: {"original": "translated"}.
 Strings: ${JSON.stringify(texts)}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
 
   try {
     const response = await fetch(CONFIG.openai.endpoint, {
@@ -126,25 +162,43 @@ Strings: ${JSON.stringify(texts)}`;
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${CONFIG.openai.apiKey}`
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: CONFIG.openai.model,
-        messages: [{ role: 'system', content: prompt }],
-        response_format: { type: "json_object" },
-        max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }], // [V2.5.3] 改为 user 角色防止部分 API 中转站挂起
+        stream: false,
         temperature: 0.3
       })
     });
 
+    clearTimeout(timer);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
+    const finishReason = data.choices?.[0]?.finish_reason;
+
     if (!content) throw new Error('Empty AI response');
 
-    const result = JSON.parse(content);
-    applyTranslations(result);
+    if (finishReason === 'length') {
+      console.warn('[I18N] 警告：AI 响应因长度限制被截断，建议减小请求规模。');
+    }
+
+    try {
+      // [V2.5.3] 增强解析：尝试从内容中提取 JSON 块，防止 AI 返回 Markdown 包裹
+      const jsonStr = content.match(/\{[\s\S]*\}/)?.[0] || content;
+      const result = JSON.parse(jsonStr);
+      applyTranslations(result, texts);
+    } catch (parseErr) {
+      console.error('[I18N] JSON 解析失败。预览:', content.substring(0, 100));
+      applyTranslationErrors(texts, 'AI 响应格式非法');
+      throw parseErr;
+    }
   } catch (err) {
-    console.error('[I18N] OpenAI Error:', err.message || err);
+    clearTimeout(timer);
+    const isTimeout = err.name === 'AbortError';
+    console.error('[I18N] OpenAI Error:', isTimeout ? '请求超时' : err.message);
+    applyTranslationErrors(texts, isTimeout ? `API 调用超时 (${API_TIMEOUT / 1000}s)` : (err.message || '网络异常'));
   }
 }
 
@@ -153,8 +207,14 @@ Strings: ${JSON.stringify(texts)}`;
  * 注：DeepL 免费版通常一次请求只能翻译一个，此处为了性能采用分次异步并发
  */
 async function callDeepL(texts) {
+  if (document.body.classList.contains('i18n-debug-active')) {
+    console.log(`%c[I18N-TRACE] DeepL 请求发起 (${texts.length} 条):`, 'color:#3b82f6', texts);
+  }
   const results = {};
   const promises = texts.map(async (text) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), API_TIMEOUT);
+
     try {
       const params = new URLSearchParams();
       params.append('auth_key', CONFIG.deepl.apiKey);
@@ -164,30 +224,60 @@ async function callDeepL(texts) {
       const response = await fetch(CONFIG.deepl.endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        signal: controller.signal,
         body: params
       });
+
+      clearTimeout(timer);
       const data = await response.json();
       if (data.translations?.[0]?.text) {
         results[text] = data.translations[0].text;
       }
-    } catch (e) { }
+    } catch (e) {
+      clearTimeout(timer);
+      console.warn(`[I18N] DeepL item failed: ${text.substring(0, 20)}...`, e.message);
+    }
   });
 
   await Promise.all(promises);
-  applyTranslations(results);
+  applyTranslations(results, texts); // [V2.5.3] 传入 texts 统一清理，简化逻辑
+}
+
+/**
+ * 翻译错误处理器
+ */
+function applyTranslationErrors(texts, reason) {
+  if (document.body.classList.contains('i18n-debug-active')) {
+    console.warn(`%c[I18N-TRACE] 翻译失败清理: ${reason}`, 'color:#ef4444', texts);
+  }
+  texts.forEach(t => {
+    ERROR_JOBS.set(t, reason);
+    IN_FLIGHT_JOBS.delete(t);
+    PENDING_JOBS.delete(t);
+  });
+  requestAnimationFrame(() => walkAndTranslate(document.body));
 }
 
 /**
  * 翻译结果生效器
  * 将获取到的全新翻译键值对持久化到 localStorage（二级缓存），并触发 DOM 重绘
  * @param {object} newMap - 新的 { '英文原句': '中文翻译' } 字典映射
+ * @param {Array<string>} originalTexts - [V2.5.3] 原始请求的任务列表，用于确保清理
  */
-function applyTranslations(newMap) {
+function applyTranslations(newMap, originalTexts = []) {
+  if (document.body.classList.contains('i18n-debug-active')) {
+    console.log(`%c[I18N-TRACE] 翻译结果下发: ${Object.keys(newMap).length} 条`, 'color:#10b981', newMap);
+  }
   Object.assign(CACHE, newMap);
-  for (const k in newMap) {
+
+  // [V2.5.3] 核心修复：无论 AI 是否返回，都必须清除对应的进行中标记
+  // 如果提供了 originalTexts，以此为准清理；否则以 newMap 的键为准
+  const keysToClear = originalTexts.length > 0 ? originalTexts : Object.keys(newMap);
+  keysToClear.forEach(k => {
     IN_FLIGHT_JOBS.delete(k);
     PENDING_JOBS.delete(k);
-  }
+  });
+
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(CACHE));
   } catch (e) {
@@ -197,14 +287,14 @@ function applyTranslations(newMap) {
   // 桥接：如果是主窗口，则通知所有 Webview 插件更新缓存
   if (IS_WORKBENCH) {
     const broadcast = (win) => {
-        if (!win || !win.frames) return;
-        for (let i = 0; i < win.frames.length; i++) {
-            const frame = win.frames[i];
-            try {
-                frame.postMessage({ type: 'I18N_BRIDGE_PUSH', newMap }, '*');
-                broadcast(frame);
-            } catch (e) {}
-        }
+      if (!win || !win.frames) return;
+      for (let i = 0; i < win.frames.length; i++) {
+        const frame = win.frames[i];
+        try {
+          frame.postMessage({ type: 'I18N_BRIDGE_PUSH', newMap }, '*');
+          broadcast(frame);
+        } catch (e) { }
+      }
     };
     broadcast(window);
   }
@@ -227,6 +317,14 @@ function scheduleTranslation(text) {
     if (window.top && window.top !== window.self && typeof window.top.postMessage === 'function') {
       PENDING_JOBS.add(text);
       window.top.postMessage({ type: 'I18N_BRIDGE_REQ', text }, '*');
+
+      // [V2.5.3] 桥接请求自清理逻辑：如果 15 秒内主窗口未下发翻译（BRIDGE_PUSH），则强制清理 Loading
+      setTimeout(() => {
+        if (PENDING_JOBS.has(text) || IN_FLIGHT_JOBS.has(text)) {
+          console.warn('[I18N] 桥接请求响应超时:', text);
+          applyTranslationErrors([text], '桥接请求无响应 (Workbench Busy)');
+        }
+      }, API_TIMEOUT + 3000);
     }
     return;
   }
@@ -237,12 +335,15 @@ function scheduleTranslation(text) {
   globalBatchTimer = setTimeout(() => {
     let batch = Array.from(PENDING_JOBS);
     if (batch.length > 0) {
+      if (document.body.classList.contains('i18n-debug-active')) {
+        console.log(`%c[I18N-TRACE] 发起分批请求: ${batch.length} 条数据`, 'color:#3b82f6');
+      }
       batch.forEach(t => {
         PENDING_JOBS.delete(t);
         IN_FLIGHT_JOBS.add(t);
       });
 
-      const chunkSize = 30;
+      const chunkSize = 12; // 从 30 减小到 12，防止因翻译过长导致响应截断
       for (let i = 0; i < batch.length; i += chunkSize) {
         const chunk = batch.slice(i, i + chunkSize);
         callOnlineAPI(chunk);
@@ -280,7 +381,7 @@ function findInNestedDict(dict, key) {
 
 function getTranslation(text) {
   const t = text.trim();
-  if (!t || t.length < 2) return null;
+  if (!t || t.length < 2 || t.length > 800) return null; // 增加长度限制，忽略过长的非 UI 文本
 
   // 1. 本地字典直接匹配
   const direct = findInNestedDict(I18N_TERMS, t);
@@ -320,9 +421,12 @@ function isExcluded(node) {
     if (!selector || typeof selector !== 'string') continue;
     try {
       if (el.closest(selector)) {
-        // 仅对元素节点在控制台输出提示，避免日志淹没
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          console.warn(`[Cursor-Live-Translator] 屏蔽区域匹配成功: ${selector}`, node);
+        // [V2.5.2] 规则命中记录与去重输出
+        if (!MATCHED_SELECTORS.has(selector)) {
+          MATCHED_SELECTORS.add(selector);
+          if (document.body.classList.contains('i18n-debug-active')) {
+            console.warn(`[I18N] 首次捕获屏蔽规则命中: ${selector}`, node);
+          }
         }
         return true;
       }
@@ -339,17 +443,34 @@ function processNode(node) {
   const trans = getTranslation(raw);
   const parent = node.parentElement;
 
-  if (trans && node.textContent !== node.textContent.replace(raw, trans)) {
+  if (trans) {
+    // [V2.5.3] 状态清理逻辑：只要有翻译结果（即使翻译后与原文相同），就必须移除 Loading
     if (parent) {
       parent.classList.add('i18n-debug-highlight');
       parent.classList.remove('i18n-loading');
       parent.setAttribute('data-i18n-original', raw);
     }
-    node.textContent = node.textContent.replace(raw, trans);
+    // 只有在内容真实变化时才执行 DOM 更新，减少重绘开销
+    if (node.textContent !== node.textContent.replace(raw, trans)) {
+      node.textContent = node.textContent.replace(raw, trans);
+    }
   } else if (parent && (PENDING_JOBS.has(raw) || IN_FLIGHT_JOBS.has(raw))) {
-    // 异步翻译中，添加动画类
-    if (!parent.classList.contains('i18n-loading')) {
-      parent.classList.add('i18n-loading');
+    // 异步翻译中
+    parent.classList.remove('i18n-error');
+    if (!parent.classList.contains('i18n-loading')) parent.classList.add('i18n-loading');
+  } else if (parent && ERROR_JOBS.has(raw)) {
+    // 翻译失败状态
+    parent.classList.remove('i18n-loading');
+    parent.classList.add('i18n-error', 'i18n-debug-highlight');
+    parent.setAttribute('data-i18n-error', ERROR_JOBS.get(raw));
+    parent.setAttribute('data-i18n-original', raw);
+  } else if (parent && parent.classList.contains('i18n-loading')) {
+    // [V2.5.3] 极其重要：状态机异常热修复
+    // 如果任务已不在进行中队列，且没有翻译或错误结果，强制移除 Loading 标记
+    // 这解决了任务被忽略（Ignored）或被 Watchdog 清理后，UI 状态未能同步的问题
+    parent.classList.remove('i18n-loading');
+    if (document.body.classList.contains('i18n-debug-active')) {
+      console.warn(`[I18N-TRACE] 发现孤立 Loading 节点并强制清理: "${raw.substring(0, 20)}..."`);
     }
   }
 }
@@ -379,16 +500,39 @@ let rafId = null;
  */
 function walkAndTranslate(root) {
   if (!root || !root.isConnected) return;
+
   if (root.nodeType === Node.TEXT_NODE) {
     processNode(root);
-  } else if (root.nodeType === Node.ELEMENT_NODE) {
-    if (SKIP_TAGS.has(root.tagName)) return;
-    if (root.hasAttribute('title')) processTitle(root);
+  } else if (root.nodeType === Node.ELEMENT_NODE || root.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    if (root.tagName && SKIP_TAGS.has(root.tagName)) return;
+    if (root.hasAttribute && root.hasAttribute('title')) processTitle(root);
+
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, (n) => {
-      return (n.parentElement && SKIP_TAGS.has(n.parentElement.tagName)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      // 这里的 n.parentElement 可能为 null (如果在 ShadowRoot 下)
+      const p = n.parentElement || (n.parentNode && n.parentNode.host);
+      return (p && p.tagName && SKIP_TAGS.has(p.tagName)) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
     });
     let textNode;
     while ((textNode = walker.nextNode())) processNode(textNode);
+
+    // [V2.5.3] 极其重要：递归探测 Shadow DOM 边界
+    const elements = (root.nodeType === Node.ELEMENT_NODE) ? [root] : [];
+    const all = elements.concat(Array.from(root.querySelectorAll ? root.querySelectorAll('*') : []));
+    for (const el of all) {
+      if (el.shadowRoot && !el.shadowRoot.__I18N_OBSERVED__) {
+        el.shadowRoot.__I18N_OBSERVED__ = true;
+        if (document.body.classList.contains('i18n-debug-active')) {
+          console.log('%c[I18N-TRACE] 穿透 Shadow DOM:', 'color:#8b5cf6', el);
+        }
+        walkAndTranslate(el.shadowRoot);
+        // 为该 ShadowRoot 动态挂载监听器
+        const subObserver = new MutationObserver(() => {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => walkAndTranslate(el.shadowRoot), 500);
+        });
+        subObserver.observe(el.shadowRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
+      }
+    }
   }
 }
 
@@ -438,6 +582,9 @@ function init() {
     if (isToggle) {
       const newState = !document.body.classList.contains('i18n-debug-active');
       document.body.classList.toggle('i18n-debug-active', newState);
+      if (newState) {
+        console.warn(`[I18N] 调试模式已开启。当前已生效的屏蔽规则汇总：`, Array.from(MATCHED_SELECTORS));
+      }
       if (IS_WORKBENCH) {
         broadcastMessage({ type: 'I18N_DEBUG_SYNC', state: newState });
       } else if (window.top && window.top !== window.self) {
@@ -467,10 +614,16 @@ function init() {
     if (!document.body.classList.contains('i18n-debug-active') || !e.altKey) return;
     const target = e.target.closest('.i18n-debug-highlight');
     if (target) {
+      const error = target.getAttribute('data-i18n-error');
       const original = target.getAttribute('data-i18n-original') || target.getAttribute('data-i18n-original-title');
-      if (original) {
+      if (error) {
+        tooltip.innerHTML = `<span style="color:#ef4444;font-weight:bold">翻译出错：</span>${error}<br><small style="opacity:0.7">原文：${original}</small>`;
+        tooltip.style.display = 'block';
+      } else if (original) {
         tooltip.textContent = `原文：${original}`;
         tooltip.style.display = 'block';
+      }
+      if (tooltip.style.display === 'block') {
         tooltip.style.left = `${Math.min(e.clientX + 10, window.innerWidth - tooltip.offsetWidth - 20)}px`;
         tooltip.style.top = `${Math.min(e.clientY + 10, window.innerHeight - tooltip.offsetHeight - 20)}px`;
       }
@@ -506,8 +659,94 @@ function init() {
 
   observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] });
   walkAndTranslate(document.body);
+
+  // [V2.5.3] Watchdog 僵尸任务监视器：每 30 秒强制检查并清理异常挂起的任务
+  setInterval(() => {
+    if (PENDING_JOBS.size > 0 || IN_FLIGHT_JOBS.size > 0) {
+      console.warn(`[I18N] Watchdog 触发自清理: PENDING(${PENDING_JOBS.size}) | IN_FLIGHT(${IN_FLIGHT_JOBS.size})`);
+      PENDING_JOBS.clear();
+      IN_FLIGHT_JOBS.clear();
+      requestAnimationFrame(() => walkAndTranslate(document.body));
+    }
+  }, 30000);
+
   logCacheStatus();
-  console.log(`%c[Cursor-Live-Translator]%c ${CONFIG.name ? `[${CONFIG.name}] ` : ''}动力系统就绪 | V2.5.0 (Eng: ${CONFIG.engineId || CONFIG.apiType})`, 'color:#8b5cf6;font-weight:bold', '');
+  const runtimeInfo = `V2.5.1 (${CONFIG.apiType}) | 注入于: ${CONFIG.injectTime || '未知'}`;
+  console.log(`%c[Cursor-Live-Translator]%c ${CONFIG.name ? `[${CONFIG.name}] ` : ''}动力系统就绪 | ${runtimeInfo}`, 'color:#8b5cf6;font-weight:bold', '');
+
+  // [V2.5.3] 自动冒烟测试：启动时静默测试 API 连通性
+  async function smokeTest() {
+    console.log(`%c[I18N-SMOKE] 正在进行 API 连通性自检 (${CONFIG.apiType})...`, 'color:#8b5cf6');
+    if (CONFIG.apiType === 'none') {
+      console.log('%c[I18N-SMOKE] 当前为单机字典模式，跳过自检。', 'color:#f59e0b');
+      return;
+    }
+    try {
+      const controller = new AbortController();
+      const st = setTimeout(() => controller.abort(), 6000); // 6秒超快检测
+      const testText = "Connection Test";
+
+      let res;
+      if (CONFIG.apiType === 'openai') {
+        res = await fetch(CONFIG.openai.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.openai.apiKey}` },
+          signal: controller.signal,
+          body: JSON.stringify({ model: CONFIG.openai.model, messages: [{ role: 'user', content: testText }], max_tokens: 1 })
+        });
+      } else {
+        const params = new URLSearchParams();
+        params.append('auth_key', CONFIG.deepl.apiKey);
+        params.append('text', testText);
+        params.append('target_lang', 'ZH');
+        res = await fetch(CONFIG.deepl.endpoint, { method: 'POST', body: params, signal: controller.signal });
+      }
+      clearTimeout(st);
+      if (res.ok) {
+        console.log('%c[I18N-SMOKE] ✅ API 连通性测试通过！', 'color:#10b981;font-weight:bold');
+      } else {
+        const errTag = await res.text();
+        console.error(`%c[I18N-SMOKE] ❌ API 连通性测试失败！原因: HTTP ${res.status}`, 'color:#ef4444;font-weight:bold', errTag.substring(0, 50));
+      }
+    } catch (e) {
+      console.error('%c[I18N-SMOKE] ❌ 连通性测试异常！可能被网络防火墙或 CSP 禁止。', 'color:#ef4444;font-weight:bold', e.message);
+    }
+  }
+  smokeTest();
+
+  // [V2.5.3] 暴露全局排查工具
+  window.__I18N_DIAGNOSE__ = () => {
+    console.log('==== [I18N] 实时诊断数据包 ====');
+    console.log('PENDING:', Array.from(PENDING_JOBS));
+    console.log('IN_FLIGHT:', Array.from(IN_FLIGHT_JOBS));
+    console.log('ERRORS:', Object.fromEntries(ERROR_JOBS));
+    console.log('CACHE SIZE:', Object.keys(CACHE).length);
+    console.log('==== [I18N] 诊断结束 ====');
+    return '诊断完成';
+  };
+
+  // [V2.5.3] 暴露手动翻译工具
+  window.__I18N_TRANSLATE__ = async (text) => {
+    console.log(`[I18N-MANUAL] 正在尝试手动翻译: "${text}"...`);
+    const originalConfig = Object.assign({}, CONFIG);
+    try {
+      if (CONFIG.apiType === 'openai') {
+        const prompt = `UI strings to Simplified Chinese. Return JSON only: {"original": "translated"}.
+Strings: ${JSON.stringify([text])}`;
+        const res = await fetch(CONFIG.openai.endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CONFIG.openai.apiKey}` },
+          body: JSON.stringify({ model: CONFIG.openai.model, messages: [{ role: 'user', content: prompt }], response_format: { type: "json_object" } })
+        });
+        const data = await res.json();
+        const content = data.choices[0].message.content;
+        console.log('[I18N-MANUAL] 接到响应内容:', content);
+        return JSON.parse(content);
+      }
+    } catch (e) {
+      console.error('[I18N-MANUAL] 手动翻译异常:', e);
+    }
+  };
 }
 
 if (document.body) init();

@@ -5,7 +5,7 @@ const readline = require('readline');
 const os = require('os');
 
 /**
- * Cursor-Live-Translator (V2.5.0 架构：HTML 注入 + AI 实时刷新)
+ * Cursor-Live-Translator (V2.5.1 架构：HTML 注入 + AI 实时刷新)
  * 适配版本：2.6.21+
  */
 const BASE_CURSOR_VERSION = '2.6.21';
@@ -25,7 +25,8 @@ const DEFAULT_SKIPS = [
     ".conversations",                         // AI 对话流区域 (隔离保护)
     ".aislash-editor-input",                  // AI 命令输入框 (防止占位符被翻)
     ".composer-file-list-item",               // AI Composer 文件列表项 (保护文件名)
-    ".agent-sidebar-cell-content-wrapper"     // AI Agent 侧边栏单元 (隔离保护)
+    ".agent-sidebar-cell-content-wrapper",    // AI Agent 侧边栏单元 (隔离保护)
+    "[data-resource-name*=\".\"]"               // 选项卡文件名 (保护含有后缀的文件名)
 ];
 
 function ensureConfigDir() {
@@ -433,7 +434,7 @@ function cleanOrphanedBackups(paths) {
 async function showMenu(paths) {
     console.clear();
     const config = loadConfig();
-    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.5.0 PRO) ====`);
+    console.log(`\n==== Cursor-Live-Translator: 实时本地化引擎 (V2.5.1 PRO) ====`);
     const isMac = process.platform === 'darwin';
     console.log(` 💡 [操作指引] 调试高亮: ${isMac ? 'Cmd+Opt+Shift+B' : 'Ctrl+Alt+Shift+B'} | 溯源原文: ${isMac ? 'Option' : 'Alt'} + 悬停`);
     console.log(` 架构方案 : Trusted Bootstrap + AI Real-time + Plugin Webview (V2.6)`);
@@ -859,7 +860,7 @@ async function runLocalization(paths) {
     };
 
     let runtimeCode = fs.readFileSync(runtimePath, 'utf8');
-    const injectCode = `\n\n// === 安装期编译内联组装 ===\n(function(){\nwindow.__CURSOR_TERMS__ = Object.assign(window.__CURSOR_TERMS__ || {}, ${JSON.stringify(I18N_DICT)});\nwindow.__I18N_CONFIG__ = ${JSON.stringify(runtimeConfig)};\n\n${runtimeCode}\n})();\n`;
+    const injectCode = `\n\n// === 安装期编译内联组装 ===\n(function(){\nwindow.__CURSOR_TERMS__ = Object.assign(window.__CURSOR_TERMS__ || {}, ${JSON.stringify(I18N_DICT)});\nwindow.__I18N_CONFIG__ = Object.assign(${JSON.stringify(runtimeConfig)}, { injectTime: "${new Date().toLocaleString()}" });\n\n${runtimeCode}\n})();\n`;
 
     // 如果已经汉化，我们需要先用备份还原基础 JS 再注入，或者直接判定已就绪
     if (isAlreadyLocalized) {
@@ -914,7 +915,7 @@ async function runLocalization(paths) {
     }
 
     const isMac = process.platform === 'darwin';
-    console.log(`\n✨ V2.5.0 汉化顺利完成！请彻底重启 Cursor 以拉起底层的翻译网络。`);
+    console.log(`\n✨ V2.5.1 汉化顺利完成！请彻底重启 Cursor 以拉起底层的翻译网络。`);
     console.log(`\n💡 温馨提示：`);
     console.log(`   - 调试高亮: ${isMac ? 'Cmd+Opt+Shift+B' : 'Ctrl+Alt+Shift+B'}`);
     console.log(`   - 溯源原文: 按住 ${isMac ? 'Option' : 'Alt'} 键并悬停在中文上`);
